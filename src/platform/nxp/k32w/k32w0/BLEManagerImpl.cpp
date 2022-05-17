@@ -1281,6 +1281,9 @@ void BLEManagerImpl::blekw_gap_connection_cb(deviceId_t deviceId, gapConnectionE
 
     if (pConnectionEvent->eventType == gConnEvtConnected_c)
     {
+        (void)Gap_LeSetPhy(FALSE, deviceId, 0, gConnPhyUpdateReqTxPhySettings_c,
+                           gConnPhyUpdateReqRxPhySettings_c, (uint16_t)gConnPhyUpdateReqPhyOptions_c);
+
         /* Notify App Task that the BLE is connected now */
         (void) blekw_msg_add_u8(BLE_KW_MSG_CONNECTED, (uint8_t) deviceId);
 #if defined(cPWR_UsePowerDownMode) && (cPWR_UsePowerDownMode)
