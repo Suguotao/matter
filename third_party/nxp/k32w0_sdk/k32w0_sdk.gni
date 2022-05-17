@@ -360,6 +360,7 @@ template("k32w0_sdk") {
       "-Wno-sign-compare",
       "-Wno-clobbered",
       "-Wno-implicit-fallthrough",
+      "-Wno-shadow",
       "-fno-optimize-strlen",
       "-mthumb",
       "-MMD",
