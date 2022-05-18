@@ -1015,7 +1015,7 @@ void BLEManagerImpl::bleAppTask(void * p_arg)
 
             if (msg->type == BLE_KW_MSG_ERROR)
             {
-                ChipLogProgress(DeviceLayer, "BLE Fatal Error: %d.\n", msg->data.u8);
+                ChipLogProgress(DeviceLayer, "BLE Error: %d.\n", msg->data.u8);
             }
             else if (msg->type == BLE_KW_MSG_CONNECTED)
             {
@@ -1281,6 +1281,8 @@ void BLEManagerImpl::blekw_gap_connection_cb(deviceId_t deviceId, gapConnectionE
 
     if (pConnectionEvent->eventType == gConnEvtConnected_c)
     {
+        ChipLogProgress(DeviceLayer, "BLE K32W: Trying to set the PHY to 2M");
+
         (void)Gap_LeSetPhy(FALSE, deviceId, 0, gConnPhyUpdateReqTxPhySettings_c,
                            gConnPhyUpdateReqRxPhySettings_c, (uint16_t)gConnPhyUpdateReqPhyOptions_c);
 
