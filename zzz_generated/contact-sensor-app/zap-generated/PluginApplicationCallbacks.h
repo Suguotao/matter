@@ -28,7 +28,6 @@
     MatterBooleanStatePluginServerInitCallback();                                                                                  \
     MatterDescriptorPluginServerInitCallback();                                                                                    \
     MatterDiagnosticLogsPluginServerInitCallback();                                                                                \
-    MatterEthernetNetworkDiagnosticsPluginServerInitCallback();                                                                    \
     MatterFixedLabelPluginServerInitCallback();                                                                                    \
     MatterGeneralCommissioningPluginServerInitCallback();                                                                          \
     MatterGeneralDiagnosticsPluginServerInitCallback();                                                                            \
@@ -43,5 +42,4 @@
     MatterSwitchPluginServerInitCallback();                                                                                        \
     MatterThreadNetworkDiagnosticsPluginServerInitCallback();                                                                      \
     MatterTimeFormatLocalizationPluginServerInitCallback();                                                                        \
-    MatterUserLabelPluginServerInitCallback();                                                                                     \
-    MatterWiFiNetworkDiagnosticsPluginServerInitCallback();
+    MatterUserLabelPluginServerInitCallback();
