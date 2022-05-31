@@ -1,0 +1,1915 @@
+diff --git a/include/mbedtls/check_config.h b/include/mbedtls/check_config.h
+index 1ebb7066a..b5d4663ba 100644
+--- a/include/mbedtls/check_config.h
++++ b/include/mbedtls/check_config.h
+@@ -90,6 +90,18 @@
+ #error "MBEDTLS_CMAC_C defined, but not all prerequisites"
+ #endif
+
++#if defined(MBEDTLS_USE_TINYCRYPT) && defined(MBEDTLS_NO_64BIT_MULTIPLICATION)
++#error "MBEDTLS_USE_TINYCRYPT defined, but it cannot be defined with MBEDTLS_NO_64BIT_MULTIPLICATION"
++#endif
++#if defined(MBEDTLS_USE_TINYCRYPT) && !defined(MBEDTLS_SHA256_C)
++#error "MBEDTLS_USE_TINYCRYPT defined, but not MBEDTLS_SHA256_C"
++#endif
++#if defined(MBEDTLS_OPTIMIZE_TINYCRYPT_ASM) &&           \
++    ( !defined(MBEDTLS_HAVE_ASM) || \
++      !defined(MBEDTLS_USE_TINYCRYPT) )
++#error "MBEDTLS_OPTIMIZE_TINYCRYPT_ASM defined, but not all prerequesites"
++#endif
++
+ #if defined(MBEDTLS_NIST_KW_C) && \
+     ( !defined(MBEDTLS_AES_C) || !defined(MBEDTLS_CIPHER_C) )
+ #error "MBEDTLS_NIST_KW_C defined, but not all prerequisites"
+@@ -354,8 +366,10 @@
+ #error "MBEDTLS_PEM_WRITE_C defined, but not all prerequisites"
+ #endif
+
+-#if defined(MBEDTLS_PK_C) && \
+-    ( !defined(MBEDTLS_RSA_C) && !defined(MBEDTLS_ECP_C) )
++#if defined(MBEDTLS_PK_C) &&                    \
++    ( !defined(MBEDTLS_RSA_C) &&                \
++      !defined(MBEDTLS_ECP_C) &&                \
++      !defined(MBEDTLS_USE_TINYCRYPT) )
+ #error "MBEDTLS_PK_C defined, but not all prerequisites"
+ #endif
+
+diff --git a/include/mbedtls/oid.h b/include/mbedtls/oid.h
+index e4c697b2d..6dea3b157 100644
+--- a/include/mbedtls/oid.h
++++ b/include/mbedtls/oid.h
+@@ -501,6 +501,18 @@ int mbedtls_oid_get_pk_alg( const mbedtls_asn1_buf *oid, mbedtls_pk_type_t *pk_a
+ int mbedtls_oid_get_oid_by_pk_alg( mbedtls_pk_type_t pk_alg,
+                            const char **oid, size_t *olen );
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++typedef enum
++{
++    MBEDTLS_UECC_DP_NONE = 0,       /*!< Curve not defined. */
++    MBEDTLS_UECC_DP_SECP256R1,      /*!< Domain parameters for the 256-bit curve defined by FIPS 186-4 and SEC1. */
++} mbedtls_uecc_group_id;
++
++int mbedtls_oid_get_ec_grp( const mbedtls_asn1_buf *oid, mbedtls_uecc_group_id *grp_id );
++
++int mbedtls_oid_get_oid_by_ec_grp( mbedtls_uecc_group_id grp_id,
++                            const char **oid, size_t *olen);
++#else
+ #if defined(MBEDTLS_ECP_C)
+ /**
+  * \brief          Translate NamedCurve OID into an EC group identifier
+@@ -524,6 +536,7 @@ int mbedtls_oid_get_ec_grp( const mbedtls_asn1_buf *oid, mbedtls_ecp_group_id *g
+ int mbedtls_oid_get_oid_by_ec_grp( mbedtls_ecp_group_id grp_id,
+                            const char **oid, size_t *olen );
+ #endif /* MBEDTLS_ECP_C */
++#endif
+
+ #if defined(MBEDTLS_MD_C)
+ /**
+diff --git a/include/mbedtls/pk.h b/include/mbedtls/pk.h
+index 7d0f977d5..536923409 100644
+--- a/include/mbedtls/pk.h
++++ b/include/mbedtls/pk.h
+@@ -47,6 +47,10 @@
+ #include "psa/crypto.h"
+ #endif
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++#include "tinycrypt/ecc.h"
++#endif
++
+ #if ( defined(__ARMCC_VERSION) || defined(_MSC_VER) ) && \
+     !defined(inline) && !defined(__cplusplus)
+ #define inline __inline
+@@ -179,6 +183,14 @@ typedef struct mbedtls_pk_debug_item
+  */
+ typedef struct mbedtls_pk_info_t mbedtls_pk_info_t;
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++typedef struct
++{
++    uint8_t private_key[NUM_ECC_BYTES];
++    uint8_t public_key[2*NUM_ECC_BYTES];
++} mbedtls_uecc_keypair;
++#endif
++
+ /**
+  * \brief           Public key container
+  */
+@@ -215,6 +227,15 @@ static inline mbedtls_rsa_context *mbedtls_pk_rsa( const mbedtls_pk_context pk )
+ }
+ #endif /* MBEDTLS_RSA_C */
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++
++static inline mbedtls_uecc_keypair *mbedtls_pk_uecc( const mbedtls_pk_context pk )
++{
++    return( (mbedtls_uecc_keypair *) (pk).pk_ctx );
++}
++
++#endif /* MBEDTLS_USE_TINYCRYPT */
++
+ #if defined(MBEDTLS_ECP_C)
+ /**
+  * Quick access to an EC context inside a PK context.
+diff --git a/include/mbedtls/pk_internal.h b/include/mbedtls/pk_internal.h
+index 47f776770..f9b24c8d4 100644
+--- a/include/mbedtls/pk_internal.h
++++ b/include/mbedtls/pk_internal.h
+@@ -31,6 +31,88 @@
+
+ #include "mbedtls/pk.h"
+
++/*
++ * PK information macro definitions
++ */
++
++/*
++ * Each PK type that can be used with MBEDTLS_PK_SINGLE_TYPE needs to have
++ * the following MBEDTLS_PK_INFO_{FIELD} definitions, plus a dummy one for the
++ * base name. For now, only ECKEY with MBEDTLS_USE_TINYCRYPT is defined.
++ *
++ * For optional functions that are omitted, we need both the _FUNC field
++ * defined to NULL, and an extra macro _OMIT defined to 1.
++ */
++
++#if defined(MBEDTLS_USE_TINYCRYPT)
++/* Dummy definition to keep check-names.sh happy - don't uncomment */
++//#define MBEDTLS_PK_INFO_ECKEY
++
++#define MBEDTLS_PK_INFO_ECKEY_CONTEXT           mbedtls_uecc_keypair
++#define MBEDTLS_PK_INFO_ECKEY_TYPE              MBEDTLS_PK_ECKEY
++#define MBEDTLS_PK_INFO_ECKEY_NAME              "EC"
++#define MBEDTLS_PK_INFO_ECKEY_GET_BITLEN        uecc_eckey_get_bitlen
++#define MBEDTLS_PK_INFO_ECKEY_CAN_DO            uecc_eckey_can_do
++#define MBEDTLS_PK_INFO_ECKEY_VERIFY_FUNC       uecc_eckey_verify_wrap
++#define MBEDTLS_PK_INFO_ECKEY_SIGN_FUNC         uecc_eckey_sign_wrap
++#define MBEDTLS_PK_INFO_ECKEY_DECRYPT_FUNC      NULL
++#define MBEDTLS_PK_INFO_ECKEY_DECRYPT_OMIT      1
++#define MBEDTLS_PK_INFO_ECKEY_ENCRYPT_FUNC      NULL
++#define MBEDTLS_PK_INFO_ECKEY_ENCRYPT_OMIT      1
++#define MBEDTLS_PK_INFO_ECKEY_CHECK_PAIR_FUNC   uecc_eckey_check_pair
++#define MBEDTLS_PK_INFO_ECKEY_CTX_ALLOC_FUNC    uecc_eckey_alloc_wrap
++#define MBEDTLS_PK_INFO_ECKEY_CTX_FREE_FUNC     uecc_eckey_free_wrap
++#define MBEDTLS_PK_INFO_ECKEY_DEBUG_FUNC        NULL
++#define MBEDTLS_PK_INFO_ECKEY_DEBUG_OMIT        1
++#endif /* MBEDTLS_USE_TINYCRYPT */
++
++/*
++ * Helper macros to extract fields from PK types
++ */
++#define MBEDTLS_PK_INFO_CONTEXT_T( PK )         PK ## _CONTEXT
++#define MBEDTLS_PK_INFO_TYPE_T( PK )            PK ## _TYPE
++#define MBEDTLS_PK_INFO_NAME_T( PK )            PK ## _NAME
++#define MBEDTLS_PK_INFO_GET_BITLEN_T( PK )      PK ## _GET_BITLEN
++#define MBEDTLS_PK_INFO_CAN_DO_T( PK )          PK ## _CAN_DO
++#define MBEDTLS_PK_INFO_VERIFY_FUNC_T( PK )     PK ## _VERIFY_FUNC
++#define MBEDTLS_PK_INFO_VERIFY_OMIT_T( PK )     PK ## _VERIFY_OMIT
++#define MBEDTLS_PK_INFO_SIGN_FUNC_T( PK )       PK ## _SIGN_FUNC
++#define MBEDTLS_PK_INFO_SIGN_OMIT_T( PK )       PK ## _SIGN_OMIT
++#define MBEDTLS_PK_INFO_DECRYPT_FUNC_T( PK )    PK ## _DECRYPT_FUNC
++#define MBEDTLS_PK_INFO_DECRYPT_OMIT_T( PK )    PK ## _DECRYPT_OMIT
++#define MBEDTLS_PK_INFO_ENCRYPT_FUNC_T( PK )    PK ## _ENCRYPT_FUNC
++#define MBEDTLS_PK_INFO_ENCRYPT_OMIT_T( PK )    PK ## _ENCRYPT_OMIT
++#define MBEDTLS_PK_INFO_CHECK_PAIR_FUNC_T( PK ) PK ## _CHECK_PAIR_FUNC
++#define MBEDTLS_PK_INFO_CHECK_PAIR_OMIT_T( PK ) PK ## _CHECK_PAIR_OMIT
++#define MBEDTLS_PK_INFO_CTX_ALLOC_FUNC_T( PK )  PK ## _CTX_ALLOC_FUNC
++#define MBEDTLS_PK_INFO_CTX_FREE_FUNC_T( PK )   PK ## _CTX_FREE_FUNC
++#define MBEDTLS_PK_INFO_DEBUG_FUNC_T( PK )      PK ## _DEBUG_FUNC
++#define MBEDTLS_PK_INFO_DEBUG_OMIT_T( PK )      PK ## _DEBUG_OMIT
++
++/* Wrappers around MBEDTLS_PK_INFO_{FIELD}_T() which makes sure that
++ * the argument is macro-expanded before concatenated with the
++ * field name. This allows to call these macros as
++ *    MBEDTLS_PK_INFO_{FIELD}( MBEDTLS_PK_SINGLE_TYPE ).
++ * where MBEDTLS_PK_SINGLE_TYPE expands to MBEDTLS_PK_INFO_{TYPE}. */
++#define MBEDTLS_PK_INFO_CONTEXT( PK )         MBEDTLS_PK_INFO_CONTEXT_T( PK )
++#define MBEDTLS_PK_INFO_TYPE( PK )            MBEDTLS_PK_INFO_TYPE_T( PK )
++#define MBEDTLS_PK_INFO_NAME( PK )            MBEDTLS_PK_INFO_NAME_T( PK )
++#define MBEDTLS_PK_INFO_GET_BITLEN( PK )      MBEDTLS_PK_INFO_GET_BITLEN_T( PK )
++#define MBEDTLS_PK_INFO_CAN_DO( PK )          MBEDTLS_PK_INFO_CAN_DO_T( PK )
++#define MBEDTLS_PK_INFO_VERIFY_FUNC( PK )     MBEDTLS_PK_INFO_VERIFY_FUNC_T( PK )
++#define MBEDTLS_PK_INFO_VERIFY_OMIT( PK )     MBEDTLS_PK_INFO_VERIFY_OMIT_T( PK )
++#define MBEDTLS_PK_INFO_SIGN_FUNC( PK )       MBEDTLS_PK_INFO_SIGN_FUNC_T( PK )
++#define MBEDTLS_PK_INFO_SIGN_OMIT( PK )       MBEDTLS_PK_INFO_SIGN_OMIT_T( PK )
++#define MBEDTLS_PK_INFO_DECRYPT_FUNC( PK )    MBEDTLS_PK_INFO_DECRYPT_FUNC_T( PK )
++#define MBEDTLS_PK_INFO_DECRYPT_OMIT( PK )    MBEDTLS_PK_INFO_DECRYPT_OMIT_T( PK )
++#define MBEDTLS_PK_INFO_ENCRYPT_FUNC( PK )    MBEDTLS_PK_INFO_ENCRYPT_FUNC_T( PK )
++#define MBEDTLS_PK_INFO_ENCRYPT_OMIT( PK )    MBEDTLS_PK_INFO_ENCRYPT_OMIT_T( PK )
++#define MBEDTLS_PK_INFO_CHECK_PAIR_FUNC( PK ) MBEDTLS_PK_INFO_CHECK_PAIR_FUNC_T( PK )
++#define MBEDTLS_PK_INFO_CHECK_PAIR_OMIT( PK ) MBEDTLS_PK_INFO_CHECK_PAIR_OMIT_T( PK )
++#define MBEDTLS_PK_INFO_CTX_ALLOC_FUNC( PK )  MBEDTLS_PK_INFO_CTX_ALLOC_FUNC_T( PK )
++#define MBEDTLS_PK_INFO_CTX_FREE_FUNC( PK )   MBEDTLS_PK_INFO_CTX_FREE_FUNC_T( PK )
++#define MBEDTLS_PK_INFO_DEBUG_FUNC( PK )      MBEDTLS_PK_INFO_DEBUG_FUNC_T( PK )
++#define MBEDTLS_PK_INFO_DEBUG_OMIT( PK )      MBEDTLS_PK_INFO_DEBUG_OMIT_T( PK )
+ struct mbedtls_pk_info_t
+ {
+     /** Public key type */
+@@ -105,6 +187,48 @@ struct mbedtls_pk_info_t
+     void (*debug_func)( const void *ctx, mbedtls_pk_debug_item *items );
+
+ };
++
++/**
++ * \brief   This macro builds an instance of ::mbedtls_pk_info_t
++ *          from an \c MBEDTLS_PK_INFO_{TYPE} identifier.
++ */
++#if defined(MBEDTLS_ECDSA_C) && defined(MBEDTLS_ECP_RESTARTABLE)
++#define MBEDTLS_PK_INFO( PK )                           \
++{                                                       \
++    MBEDTLS_PK_INFO_TYPE( PK ),              \
++    MBEDTLS_PK_INFO_NAME( PK ),              \
++    MBEDTLS_PK_INFO_GET_BITLEN( PK ),        \
++    MBEDTLS_PK_INFO_CAN_DO( PK ),            \
++    MBEDTLS_PK_INFO_VERIFY_FUNC( PK ),       \
++    MBEDTLS_PK_INFO_SIGN_FUNC( PK ),         \
++    NULL,                                               \
++    NULL,                                               \
++    MBEDTLS_PK_INFO_DECRYPT_FUNC( PK ),      \
++    MBEDTLS_PK_INFO_ENCRYPT_FUNC( PK ),      \
++    MBEDTLS_PK_INFO_CHECK_PAIR_FUNC( PK ),   \
++    MBEDTLS_PK_INFO_CTX_ALLOC_FUNC( PK ),    \
++    MBEDTLS_PK_INFO_CTX_FREE_FUNC( PK ),     \
++    NULL,                                               \
++    NULL,                                               \
++    MBEDTLS_PK_INFO_DEBUG_FUNC( PK ),        \
++}
++#else /* MBEDTLS_ECDSA_C && MBEDTLS_ECP_RESTARTABLE */
++#define MBEDTLS_PK_INFO( PK )                           \
++{                                                       \
++    MBEDTLS_PK_INFO_TYPE( PK ),              \
++    MBEDTLS_PK_INFO_NAME( PK ),              \
++    MBEDTLS_PK_INFO_GET_BITLEN( PK ),        \
++    MBEDTLS_PK_INFO_CAN_DO( PK ),            \
++    MBEDTLS_PK_INFO_VERIFY_FUNC( PK ),       \
++    MBEDTLS_PK_INFO_SIGN_FUNC( PK ),         \
++    MBEDTLS_PK_INFO_DECRYPT_FUNC( PK ),      \
++    MBEDTLS_PK_INFO_ENCRYPT_FUNC( PK ),      \
++    MBEDTLS_PK_INFO_CHECK_PAIR_FUNC( PK ),   \
++    MBEDTLS_PK_INFO_CTX_ALLOC_FUNC( PK ),    \
++    MBEDTLS_PK_INFO_CTX_FREE_FUNC( PK ),     \
++    MBEDTLS_PK_INFO_DEBUG_FUNC( PK ),        \
++}
++#endif /* MBEDTLS_ECDSA_C && MBEDTLS_ECP_RESTARTABLE */
+ #if defined(MBEDTLS_PK_RSA_ALT_SUPPORT)
+ /* Container for RSA-alt */
+ typedef struct
+@@ -129,6 +253,10 @@ extern const mbedtls_pk_info_t mbedtls_eckeydh_info;
+ extern const mbedtls_pk_info_t mbedtls_ecdsa_info;
+ #endif
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++extern const mbedtls_pk_info_t mbedtls_uecc_eckey_info;
++#endif
++
+ #if defined(MBEDTLS_PK_RSA_ALT_SUPPORT)
+ extern const mbedtls_pk_info_t mbedtls_rsa_alt_info;
+ #endif
+diff --git a/include/mbedtls/platform.h b/include/mbedtls/platform.h
+index fde5ee8c8..00d5c5756 100644
+--- a/include/mbedtls/platform.h
++++ b/include/mbedtls/platform.h
+@@ -37,6 +37,10 @@
+ #include MBEDTLS_CONFIG_FILE
+ #endif
+
++#define MBEDTLS_ERR_PLATFORM_HW_ACCEL_FAILED     -0x0070 /**< Hardware accelerator failed */
++#define MBEDTLS_ERR_PLATFORM_FEATURE_UNSUPPORTED -0x0072 /**< The requested feature is not supported by the platform */
++#define MBEDTLS_ERR_PLATFORM_FAULT_DETECTED      -0x0071 /**< A hardware fault was detected in a critical path. As a security precaution this should be treated as a potential physical attack */
++#define MBEDTLS_ERR_PLATFORM_ALLOC_FAILED        -0x0076 /**< Memory allocation failed */
+ #if defined(MBEDTLS_HAVE_TIME)
+ #include "mbedtls/platform_time.h"
+ #endif
+diff --git a/include/mbedtls/platform_util.h b/include/mbedtls/platform_util.h
+index fbc2a0d1c..7580d6e57 100644
+--- a/include/mbedtls/platform_util.h
++++ b/include/mbedtls/platform_util.h
+@@ -132,6 +132,178 @@ MBEDTLS_DEPRECATED typedef int mbedtls_deprecated_numeric_constant_t;
+ #endif /* MBEDTLS_DEPRECATED_WARNING */
+ #endif /* MBEDTLS_DEPRECATED_REMOVED */
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++/**
++ * \brief       Securely zeroize a buffer
++ *
++ *              The function is meant to wipe the data contained in a buffer so
++ *              that it can no longer be recovered even if the program memory
++ *              is later compromised. Call this function on sensitive data
++ *              stored on the stack before returning from a function, and on
++ *              sensitive data stored on the heap before freeing the heap
++ *              object.
++ *
++ *              It is extremely difficult to guarantee that calls to
++ *              mbedtls_platform_zeroize() are not removed by aggressive
++ *              compiler optimizations in a portable way. For this reason, Mbed
++ *              TLS provides the configuration option
++ *              MBEDTLS_PLATFORM_ZEROIZE_ALT, which allows users to configure
++ *              mbedtls_platform_zeroize() to use a suitable implementation for
++ *              their platform and needs
++ *
++ * \param buf   Buffer to be zeroized
++ * \param len   Length of the buffer in bytes
++ *
++ * \return      The value of \p buf if the operation was successful.
++ * \return      NULL if a potential FI attack was detected or input parameters
++ *              are not valid.
++ */
++void *mbedtls_platform_zeroize( void *buf, size_t len );
++
++/**
++ * \brief       Secure memset
++ *
++ *              This is a constant-time version of memset(). The buffer is
++ *              initialised with random data and the order is also randomised
++ *              using the RNG in order to further harden against side-channel
++ *              attacks.
++ *
++ * \param ptr   Buffer to be set.
++ * \param value Value to be used when setting the buffer.
++ * \param num   The length of the buffer in bytes.
++ *
++ * \return      The value of \p ptr if the operation was successful.
++ * \return      NULL if a potential FI attack was detected.
++ */
++void *mbedtls_platform_memset( void *ptr, int value, size_t num );
++
++/**
++ * \brief       Secure memcpy
++ *
++ *              This is a constant-time version of memcpy(). The buffer is
++ *              initialised with random data and the order is also randomised
++ *              using the RNG in order to further harden against side-channel
++ *              attacks.
++ *
++ * \param dst   Destination buffer where the data is being copied to.
++ * \param src   Source buffer where the data is being copied from.
++ * \param num   The length of the buffers in bytes.
++ *
++ * \return      The value of \p dst.
++ * \return      NULL if a potential FI attack was detected.
++ */
++void *mbedtls_platform_memcpy( void *dst, const void *src, size_t num );
++
++/**
++ * \brief       Secure memmove
++ *
++ *              This is a constant-time version of memmove(). It is based on
++ *              the double use of the mbedtls_platform_memcpy() function secured
++ *              against side-channel attacks.
++ *
++ * \param dst   Destination buffer where the data is being moved to.
++ * \param src   Source buffer where the data is being moved from.
++ * \param num   The length of the buffers in bytes.
++ *
++ * \return      0 if the operation was successful
++ * \return      #MBEDTLS_ERR_PLATFORM_ALLOC_FAILED if a memory allocation failed
++ */
++int mbedtls_platform_memmove( void *dst, const void *src, size_t num );
++
++#if !defined(MBEDTLS_DEPRECATED_REMOVED)
++#if defined(MBEDTLS_DEPRECATED_WARNING)
++#define MBEDTLS_DEPRECATED      __attribute__((deprecated))
++#else
++#define MBEDTLS_DEPRECATED
++#endif
++
++/**
++ * \brief       Secure memcmp
++ *
++ *              This is a constant-time version of memcmp(), but without checking
++ *              if the bytes are greater or lower. The order is also randomised
++ *              using the RNG in order to further harden against side-channel attacks.
++ *
++ * \param buf1  First buffer to compare.
++ * \param buf2  Second buffer to compare against.
++ * \param num   The length of the buffers in bytes.
++ *
++ * \deprecated  Superseded by mbedtls_platform_memequal(), and is only an alias to it.
++ *
++ * \return      0 if the buffers were equal or an unspecified non-zero value
++ *              otherwise.
++ */
++int mbedtls_platform_memcmp( const void *buf1, const void *buf2, size_t num );
++
++#endif
++/**
++ * \brief       Secure check if the buffers have the same data.
++ *
++ *              This is a constant-time version of memcmp(), but without checking
++ *              if the bytes are greater or lower. The order is also randomised
++ *              using the RNG in order to further harden against side-channel attacks.
++ *
++ * \param buf1  First buffer to compare.
++ * \param buf2  Second buffer to compare against.
++ * \param num   The length of the buffers in bytes.
++ *
++ * \return      0 if the buffers were equal or an unspecified non-zero value
++ *              otherwise.
++ */
++int mbedtls_platform_memequal( const void *buf1, const void *buf2, size_t num );
++
++/**
++ * \brief       RNG-function for getting a random 32-bit integer.
++ *
++ * \return      The generated random number.
++ */
++uint32_t mbedtls_platform_random_uint32( void );
++
++/**
++ * \brief       RNG-function for getting a random in given range.
++ *
++ *              This function is meant to provide a global RNG to be used
++ *              throughout Mbed TLS for hardening the library. It is used
++ *              for generating a random delay, random data or random offset
++ *              for utility functions. It is not meant to be a
++ *              cryptographically secure RNG, but provide an RNG for utility
++ *              functions.
++ *
++ * \param num   Max-value for the generated random number, exclusive.
++ *              Must be greater than zero, otherwise an undefined behavior
++ *              will occur on "num % 0".
++ *              The generated number will be on range [0, num).
++ *
++ * \return      The generated random number.
++ */
++uint32_t mbedtls_platform_random_in_range( uint32_t num );
++
++/**
++ * \brief       Random delay function.
++ *
++ *              Function implements a random delay by incrementing a local
++ *              variable randomized number of times (busy-looping).
++ *
++ *              Duration of the delay is random as number of variable increments
++ *              is randomized.
++ *
++ * \note        This function works only if the MBEDTLS_FI_COUNTERMEASURES flag
++ *              is defined in the configuration. Otherwise, the function does
++ *              nothing.
++ */
++void mbedtls_platform_random_delay( void );
++
++/**
++ * \brief       RNG-function for getting a random buffer.
++ *
++ * \param buf   Buffer for random data
++ * \param len   Length of the buffer in bytes
++ *
++ */
++void mbedtls_platform_random_buf( uint8_t *buf, size_t len);
++
++#else
++
+ /**
+  * \brief       Securely zeroize a buffer
+  *
+@@ -156,6 +328,8 @@ MBEDTLS_DEPRECATED typedef int mbedtls_deprecated_numeric_constant_t;
+  */
+ void mbedtls_platform_zeroize( void *buf, size_t len );
+
++#endif
++
+ #if defined(MBEDTLS_HAVE_TIME_DATE)
+ /**
+  * \brief      Platform-specific implementation of gmtime_r()
+diff --git a/library/error.c b/library/error.c
+index 901a3699a..f6da47a21 100644
+--- a/library/error.c
++++ b/library/error.c
+@@ -210,6 +210,10 @@
+ #include "mbedtls/xtea.h"
+ #endif
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++#include "tinycrypt/ecc.h"
++#endif
++
+
+ const char * mbedtls_high_level_strerr( int error_code )
+ {
+@@ -884,6 +888,13 @@ const char * mbedtls_low_level_strerr( int error_code )
+         case -(MBEDTLS_ERR_XTEA_HW_ACCEL_FAILED):
+             return( "XTEA - XTEA hardware accelerator failed" );
+ #endif /* MBEDTLS_XTEA_C */
++
++#if defined(MBEDTLS_USE_TINYCRYPT)
++        case UECC_FAILURE:
++            return( "TinyCrypt - uECC failure" );
++        case UECC_FAULT_DETECTED:
++            return( "TinyCrypt - uECC fault detected" );
++#endif /* MBEDTLS_USE_TINYCRYPT */
+         /* End Auto-Generated Code. */
+
+         default:
+diff --git a/library/oid.c b/library/oid.c
+index 19c8ac207..556f8fbed 100644
+--- a/library/oid.c
++++ b/library/oid.c
+@@ -40,6 +40,7 @@
+  * Macro to automatically add the size of #define'd OIDs
+  */
+ #define ADD_LEN(s)      s, MBEDTLS_OID_SIZE(s)
++#define NULL_OID_DESCRIPTOR                   { NULL, 0 }
+
+ /*
+  * Macro to generate an internal function for oid_XXX_from_asn1() (used by
+@@ -372,7 +373,7 @@ static const oid_sig_alg_t oid_sig_alg[] =
+     },
+ #endif /* MBEDTLS_SHA1_C */
+ #endif /* MBEDTLS_RSA_C */
+-#if defined(MBEDTLS_ECDSA_C)
++#if defined(MBEDTLS_ECDSA_C) || defined(MBEDTLS_USE_TINYCRYPT)
+ #if defined(MBEDTLS_SHA1_C)
+     {
+         { ADD_LEN( MBEDTLS_OID_ECDSA_SHA1 ),       "ecdsa-with-SHA1",      "ECDSA with SHA1" },
+@@ -399,7 +400,7 @@ static const oid_sig_alg_t oid_sig_alg[] =
+         MBEDTLS_MD_SHA512,   MBEDTLS_PK_ECDSA,
+     },
+ #endif /* MBEDTLS_SHA512_C */
+-#endif /* MBEDTLS_ECDSA_C */
++#endif /* MBEDTLS_ECDSA_C || MBEDTLS_USE_TINYCRYPT */
+ #if defined(MBEDTLS_RSA_C)
+     {
+         { ADD_LEN( MBEDTLS_OID_RSASSA_PSS ),        "RSASSA-PSS",           "RSASSA-PSS" },
+@@ -450,6 +451,12 @@ FN_OID_TYPED_FROM_ASN1(oid_pk_alg_t, pk_alg, oid_pk_alg)
+ FN_OID_GET_ATTR1(mbedtls_oid_get_pk_alg, oid_pk_alg_t, pk_alg, mbedtls_pk_type_t, pk_alg)
+ FN_OID_GET_OID_BY_ATTR1(mbedtls_oid_get_oid_by_pk_alg, oid_pk_alg_t, oid_pk_alg, mbedtls_pk_type_t, pk_alg)
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++typedef struct {
++    mbedtls_oid_descriptor_t    descriptor;
++    mbedtls_uecc_group_id       grp_id;
++} oid_ecp_grp_t;
++#else
+ #if defined(MBEDTLS_ECP_C)
+ /*
+  * For namedCurve (RFC 5480)
+@@ -458,7 +465,26 @@ typedef struct {
+     mbedtls_oid_descriptor_t    descriptor;
+     mbedtls_ecp_group_id        grp_id;
+ } oid_ecp_grp_t;
++#endif
++#endif
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++static const oid_ecp_grp_t oid_ecp_grp[] =
++{
++    {
++        { ADD_LEN( MBEDTLS_OID_EC_GRP_SECP256R1 ), "secp256r1", "secp256r1" },
++        MBEDTLS_UECC_DP_SECP256R1,
++    },
++    {
++        NULL_OID_DESCRIPTOR,
++        MBEDTLS_UECC_DP_NONE,
++    },
++};
++FN_OID_TYPED_FROM_ASN1(oid_ecp_grp_t, grp_id, oid_ecp_grp)
++FN_OID_GET_ATTR1(mbedtls_oid_get_ec_grp, oid_ecp_grp_t, grp_id, mbedtls_uecc_group_id, grp_id)
++FN_OID_GET_OID_BY_ATTR1(mbedtls_oid_get_oid_by_ec_grp, oid_ecp_grp_t, oid_ecp_grp, mbedtls_uecc_group_id, grp_id)
++#else
++#if defined(MBEDTLS_ECP_C)
+ static const oid_ecp_grp_t oid_ecp_grp[] =
+ {
+ #if defined(MBEDTLS_ECP_DP_SECP192R1_ENABLED)
+@@ -537,6 +563,7 @@ FN_OID_TYPED_FROM_ASN1(oid_ecp_grp_t, grp_id, oid_ecp_grp)
+ FN_OID_GET_ATTR1(mbedtls_oid_get_ec_grp, oid_ecp_grp_t, grp_id, mbedtls_ecp_group_id, grp_id)
+ FN_OID_GET_OID_BY_ATTR1(mbedtls_oid_get_oid_by_ec_grp, oid_ecp_grp_t, oid_ecp_grp, mbedtls_ecp_group_id, grp_id)
+ #endif /* MBEDTLS_ECP_C */
++#endif
+
+ #if defined(MBEDTLS_CIPHER_C)
+ /*
+diff --git a/library/pk.c b/library/pk.c
+index ecf002d45..ed42ccf87 100644
+--- a/library/pk.c
++++ b/library/pk.c
+@@ -35,11 +35,26 @@
+ #if defined(MBEDTLS_ECDSA_C)
+ #include "mbedtls/ecdsa.h"
+ #endif
++#if defined(MBEDTLS_USE_TINYCRYPT)
++#include "tinycrypt/ecc.h"
++#include "tinycrypt/ecc_dsa.h"
++#include "mbedtls/asn1.h"
++#include "mbedtls/asn1write.h"
++#endif /* MBEDTLS_USE_TINYCRYPT */
+
+ #if defined(MBEDTLS_USE_PSA_CRYPTO)
+ #include "mbedtls/psa_util.h"
+ #endif
+
++#include "mbedtls/platform_util.h"
++#include "mbedtls/platform.h"
++
++#if !defined(MBEDTLS_PLATFORM_C)
++#include <stdlib.h>
++#define mbedtls_calloc    calloc
++#define mbedtls_free       free
++#endif
++
+ #include <limits.h>
+ #include <stdint.h>
+
+@@ -49,6 +64,298 @@
+ #define PK_VALIDATE( cond )        \
+     MBEDTLS_INTERNAL_VALIDATE( cond )
+
++
++/*
++ * Internal wrappers around ECC functions - based on TinyCrypt
++ */
++#if defined(MBEDTLS_USE_TINYCRYPT)
++/*
++ * An ASN.1 encoded signature is a sequence of two ASN.1 integers. Parse one of
++ * those integers and convert it to the fixed-length encoding.
++ */
++static int extract_ecdsa_sig_int( unsigned char **from, const unsigned char *end,
++                                  unsigned char *to, size_t to_len )
++{
++    int ret;
++    size_t unpadded_len, padding_len;
++
++    if( ( ret = mbedtls_asn1_get_tag( from, end, &unpadded_len,
++                                      MBEDTLS_ASN1_INTEGER ) ) != 0 )
++    {
++        return( ret );
++    }
++
++    while( unpadded_len > 0 && **from == 0x00 )
++    {
++        ( *from )++;
++        unpadded_len--;
++    }
++
++    if( unpadded_len > to_len || unpadded_len == 0 )
++        return( MBEDTLS_ERR_ASN1_LENGTH_MISMATCH );
++
++    padding_len = to_len - unpadded_len;
++    memset( to, 0x00, padding_len );
++    mbedtls_platform_memcpy( to + padding_len, *from, unpadded_len );
++    ( *from ) += unpadded_len;
++
++    return( 0 );
++}
++
++/*
++ * Convert a signature from an ASN.1 sequence of two integers
++ * to a raw {r,s} buffer. Note: the provided sig buffer must be at least
++ * twice as big as int_size.
++ */
++static int extract_ecdsa_sig( unsigned char **p, const unsigned char *end,
++                              unsigned char *sig, size_t int_size )
++{
++    int ret;
++    size_t tmp_size;
++
++    if( ( ret = mbedtls_asn1_get_tag( p, end, &tmp_size,
++                MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE ) ) != 0 )
++        return( ret );
++
++    /* Extract r */
++    if( ( ret = extract_ecdsa_sig_int( p, end, sig, int_size ) ) != 0 )
++        return( ret );
++    /* Extract s */
++    if( ( ret = extract_ecdsa_sig_int( p, end, sig + int_size, int_size ) ) != 0 )
++        return( ret );
++
++    return( 0 );
++}
++
++static size_t uecc_eckey_get_bitlen( const void *ctx )
++{
++    (void) ctx;
++    return( (size_t) ( NUM_ECC_BYTES * 8 ) );
++}
++
++/* This function compares public keys of two keypairs */
++static int uecc_eckey_check_pair( const void *pub, const void *prv )
++{
++    const mbedtls_uecc_keypair *uecc_pub =
++        (const mbedtls_uecc_keypair *) pub;
++    const mbedtls_uecc_keypair *uecc_prv =
++        (const mbedtls_uecc_keypair *) prv;
++
++    if( mbedtls_platform_memequal( uecc_pub->public_key,
++                uecc_prv->public_key,
++                2 * NUM_ECC_BYTES ) == 0 )
++    {
++        return( 0 );
++    }
++
++    return( MBEDTLS_ERR_PK_BAD_INPUT_DATA );
++}
++
++static int uecc_eckey_can_do( mbedtls_pk_type_t type )
++{
++    return( type == MBEDTLS_PK_ECDSA ||
++            type == MBEDTLS_PK_ECKEY );
++}
++
++static int uecc_eckey_verify_wrap( void *ctx, mbedtls_md_type_t md_alg,
++                       const unsigned char *hash, size_t hash_len,
++                       const unsigned char *sig, size_t sig_len )
++{
++    int ret = MBEDTLS_ERR_PLATFORM_FAULT_DETECTED;
++    volatile int ret_fi = UECC_FAULT_DETECTED;
++    uint8_t signature[2*NUM_ECC_BYTES];
++    unsigned char *p;
++    const mbedtls_uecc_keypair *keypair = (const mbedtls_uecc_keypair *) ctx;
++
++    ((void) md_alg);
++    p = (unsigned char*) sig;
++
++    ret = extract_ecdsa_sig( &p, sig + sig_len, signature, NUM_ECC_BYTES );
++    if( ret != 0 )
++        return( ret );
++
++    ret_fi = uECC_verify( keypair->public_key, hash,
++                          (unsigned) hash_len, signature );
++
++    if( ret_fi == UECC_FAULT_DETECTED )
++        return( MBEDTLS_ERR_PLATFORM_FAULT_DETECTED );
++
++    if( ret_fi == UECC_SUCCESS )
++    {
++        mbedtls_platform_random_delay();
++        if( ret_fi == UECC_SUCCESS )
++            return( 0 );
++        else
++            return( MBEDTLS_ERR_PLATFORM_FAULT_DETECTED );
++    }
++
++    return( MBEDTLS_ERR_PK_HW_ACCEL_FAILED );
++}
++
++/*
++ * Simultaneously convert and move raw MPI from the beginning of a buffer
++ * to an ASN.1 MPI at the end of the buffer.
++ * See also mbedtls_asn1_write_mpi().
++ *
++ * p: pointer to the end of the output buffer
++ * start: start of the output buffer, and also of the mpi to write at the end
++ * n_len: length of the mpi to read from start
++ *
++ * Warning:
++ * The total length of the output buffer must be smaller than 128 Bytes.
++ */
++static int asn1_write_mpibuf( unsigned char **p, unsigned char *start,
++                              size_t n_len )
++{
++    size_t len = n_len;
++    int ret = MBEDTLS_ERR_PLATFORM_FAULT_DETECTED;
++
++    if( (size_t)( *p - start ) < len )
++        return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
++
++    *p -= len;
++    ret = mbedtls_platform_memmove( *p, start, len );
++    if( ret != 0 )
++    {
++        return( ret );
++    }
++
++    /* ASN.1 DER encoding requires minimal length, so skip leading 0s.
++     * Neither r nor s should be 0, but as a failsafe measure, still detect
++     * that rather than overflowing the buffer in case of an error. */
++    while( len > 0 && **p == 0x00 )
++    {
++        ++(*p);
++        --len;
++    }
++
++    /* this is only reached if the signature was invalid */
++    if( len == 0 )
++        return( MBEDTLS_ERR_PK_HW_ACCEL_FAILED );
++
++    /* if the msb is 1, ASN.1 requires that we prepend a 0.
++     * Neither r nor s can be 0, so we can assume len > 0 at all times. */
++    if( **p & 0x80 )
++    {
++        if( *p - start < 1 )
++            return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
++
++        *--(*p) = 0x00;
++        len += 1;
++    }
++
++    /* Ensure that there is still space for len and ASN1_INTEGER */
++    if( ( *p - start ) < 2 )
++        return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
++
++    /* The ASN.1 length encoding is just a single Byte containing the length,
++     * as we assume that the total buffer length is smaller than 128 Bytes. */
++    *--(*p) = len;
++    *--(*p) = MBEDTLS_ASN1_INTEGER;
++    len += 2;
++
++    return( (int) len );
++}
++
++/* Transcode signature from uECC format to ASN.1 sequence.
++ * See ecdsa_signature_to_asn1 in ecdsa.c, but with byte buffers instead of
++ * MPIs, and in-place.
++ *
++ * [in/out] sig: the signature pre- and post-transcoding
++ * [in/out] sig_len: signature length pre- and post-transcoding
++ * [in] buf_len: the available size the in/out buffer
++ *
++ * Warning: buf_len must be smaller than 128 Bytes.
++ */
++static int pk_ecdsa_sig_asn1_from_uecc( unsigned char *sig, size_t *sig_len,
++                                        size_t buf_len )
++{
++    int ret = MBEDTLS_ERR_PLATFORM_FAULT_DETECTED;
++    size_t len = 0;
++    const size_t rs_len = *sig_len / 2;
++    unsigned char *p = sig + buf_len;
++
++    MBEDTLS_ASN1_CHK_ADD( len, asn1_write_mpibuf( &p, sig + rs_len, rs_len ) );
++    MBEDTLS_ASN1_CHK_ADD( len, asn1_write_mpibuf( &p, sig, rs_len ) );
++
++    if( p - sig < 2 )
++        return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
++
++    /* The ASN.1 length encoding is just a single Byte containing the length,
++     * as we assume that the total buffer length is smaller than 128 Bytes. */
++    *--p = len;
++    *--p = MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE;
++    len += 2;
++
++    ret = mbedtls_platform_memmove( sig, p, len );
++    if( ret != 0 )
++    {
++        return( ret );
++    }
++    *sig_len = len;
++
++    return( ret );
++}
++
++static int uecc_eckey_sign_wrap( void *ctx, mbedtls_md_type_t md_alg,
++                   const unsigned char *hash, size_t hash_len,
++                   unsigned char *sig, size_t *sig_len,
++                   int (*f_rng)(void *, unsigned char *, size_t), void *p_rng )
++{
++    const mbedtls_uecc_keypair *keypair = (const mbedtls_uecc_keypair *) ctx;
++    int ret;
++
++    /*
++     * RFC-4492 page 20:
++     *
++     *     Ecdsa-Sig-Value ::= SEQUENCE {
++     *         r       INTEGER,
++     *         s       INTEGER
++     *     }
++     *
++     * Size is at most
++     *    1 (tag) + 1 (len) + 1 (initial 0) + NUM_ECC_BYTES for each of r and s,
++     *    twice that + 1 (tag) + 2 (len) for the sequence
++     *
++     * (The ASN.1 length encodings are all 1-Byte encodings because
++     *  the total size is smaller than 128 Bytes).
++     */
++     #define MAX_SECP256R1_ECDSA_SIG_LEN ( 3 + 2 * ( 3 + NUM_ECC_BYTES ) )
++
++    ret = uECC_sign( keypair->private_key, hash, hash_len, sig );
++    if( ret == UECC_FAULT_DETECTED )
++        return( MBEDTLS_ERR_PLATFORM_FAULT_DETECTED );
++    if( ret != UECC_SUCCESS )
++        return( MBEDTLS_ERR_PK_HW_ACCEL_FAILED );
++
++    *sig_len = 2 * NUM_ECC_BYTES;
++
++    /* uECC owns its rng function pointer */
++    (void) f_rng;
++    (void) p_rng;
++    (void) md_alg;
++
++    return( pk_ecdsa_sig_asn1_from_uecc( sig, sig_len,
++                                         MAX_SECP256R1_ECDSA_SIG_LEN ) );
++
++    #undef MAX_SECP256R1_ECDSA_SIG_LEN
++}
++static void *uecc_eckey_alloc_wrap( void )
++{
++    return( mbedtls_calloc( 1, sizeof( mbedtls_uecc_keypair ) ) );
++}
++
++static void uecc_eckey_free_wrap( void *ctx )
++{
++    if( ctx == NULL )
++        return;
++
++    mbedtls_platform_zeroize( ctx, sizeof( mbedtls_uecc_keypair ) );
++    mbedtls_free( ctx );
++}
++const mbedtls_pk_info_t mbedtls_uecc_eckey_info =
++                        MBEDTLS_PK_INFO( MBEDTLS_PK_INFO_ECKEY );
++#endif /* MBEDTLS_USE_TINYCRYPT */
+ /*
+  * Initialise a mbedtls_pk_context
+  */
+@@ -114,8 +421,6 @@ const mbedtls_pk_info_t * mbedtls_pk_info_from_type( mbedtls_pk_type_t pk_type )
+             return( &mbedtls_rsa_info );
+ #endif
+ #if defined(MBEDTLS_ECP_C)
+-        case MBEDTLS_PK_ECKEY:
+-            return( &mbedtls_eckey_info );
+         case MBEDTLS_PK_ECKEY_DH:
+             return( &mbedtls_eckeydh_info );
+ #endif
+@@ -123,6 +428,15 @@ const mbedtls_pk_info_t * mbedtls_pk_info_from_type( mbedtls_pk_type_t pk_type )
+         case MBEDTLS_PK_ECDSA:
+             return( &mbedtls_ecdsa_info );
+ #endif
++#if defined(MBEDTLS_USE_TINYCRYPT)
++        case MBEDTLS_PK_ECKEY:
++            return( &mbedtls_uecc_eckey_info );
++#else /* MBEDTLS_USE_TINYCRYPT */
++#if defined(MBEDTLS_ECP_C)
++        case MBEDTLS_PK_ECKEY:
++            return( &mbedtls_eckey_info );
++#endif
++#endif /* MBEDTLS_USE_TINYCRYPT */
+         /* MBEDTLS_PK_RSA_ALT omitted on purpose */
+         default:
+             return( NULL );
+diff --git a/library/pkparse.c b/library/pkparse.c
+index 0590f2b05..bf03f7542 100644
+--- a/library/pkparse.c
++++ b/library/pkparse.c
+@@ -47,6 +47,9 @@
+ #if defined(MBEDTLS_PKCS12_C)
+ #include "mbedtls/pkcs12.h"
+ #endif
++#if defined(MBEDTLS_USE_TINYCRYPT)
++#include "tinycrypt/ecc.h"
++#endif
+
+ #if defined(MBEDTLS_PLATFORM_C)
+ #include "mbedtls/platform.h"
+@@ -171,7 +174,28 @@ int mbedtls_pk_parse_public_keyfile( mbedtls_pk_context *ctx, const char *path )
+ }
+ #endif /* MBEDTLS_FS_IO */
+
+-#if defined(MBEDTLS_ECP_C)
++#if defined(MBEDTLS_USE_TINYCRYPT)
++static int pk_use_ecparams( const mbedtls_asn1_buf *params )
++{
++    mbedtls_uecc_group_id grp_id;
++
++    if( params->tag == MBEDTLS_ASN1_OID )
++    {
++        if( mbedtls_oid_get_ec_grp( params, &grp_id ) != 0 )
++            return( MBEDTLS_ERR_PK_UNKNOWN_NAMED_CURVE );
++    }
++    else
++    {
++        // Only P-256 is supported
++        return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT );
++    }
++
++    return( 0 );
++}
++#endif /* MBEDTLS_USE_TINYCRYPT */
++
++#if defined(MBEDTLS_ECP_C) || \
++    defined(MBEDTLS_USE_TINYCRYPT)
+ /* Minimally parse an ECParameters buffer to and mbedtls_asn1_buf
+  *
+  * ECParameters ::= CHOICE {
+@@ -215,7 +239,11 @@ static int pk_get_ecparams( unsigned char **p, const unsigned char *end,
+
+     return( 0 );
+ }
++#endif /* MBEDTLS_ECP_C || MBEDTLS_USE_TINYCRYPT */
++
++#if !defined(MBEDTLS_USE_TINYCRYPT)
+
++#if defined(MBEDTLS_ECP_C)
+ #if defined(MBEDTLS_PK_PARSE_EC_EXTENDED)
+ /*
+  * Parse a SpecifiedECDomain (SEC 1 C.2) and (mostly) fill the group with it.
+@@ -511,6 +539,52 @@ static int pk_get_ecpubkey( unsigned char **p, const unsigned char *end,
+     return( ret );
+ }
+ #endif /* MBEDTLS_ECP_C */
++#endif /* !MBEDTLS_USE_TINYCRYPT */
++
++#if defined(MBEDTLS_USE_TINYCRYPT)
++/*
++ * Import a point from unsigned binary data (SEC1 2.3.4)
++ */
++static int uecc_public_key_read_binary( mbedtls_uecc_keypair *uecc_keypair,
++                                        const unsigned char *buf, size_t ilen )
++{
++    if( ilen != 2 * NUM_ECC_BYTES + 1 )
++        return( MBEDTLS_ERR_PK_INVALID_PUBKEY );
++
++    /* We are not handling the point at infinity. */
++
++    if( buf[0] != 0x04 )
++        return( MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE );
++
++    if( mbedtls_platform_memcpy( uecc_keypair->public_key, buf + 1, 2 * NUM_ECC_BYTES ) ==
++                                 uecc_keypair->public_key )
++    {
++        return( 0 );
++    }
++
++    return( MBEDTLS_ERR_PLATFORM_FAULT_DETECTED );
++}
++
++static int pk_get_ueccpubkey( unsigned char **p,
++                           const unsigned char *end,
++                           uint8_t *pk_context)
++{
++    mbedtls_uecc_keypair *uecc_keypair = (mbedtls_uecc_keypair *) pk_context;
++    int ret;
++
++    if( ( ret = uecc_public_key_read_binary( uecc_keypair,
++                                             (const unsigned char *) *p, end - *p ) )
++            != 0 )
++        return ret;
++
++    /*
++     * We know uecc_public_key_read_binary consumed all bytes or failed
++     */
++    *p = (unsigned char *) end;
++
++    return( ret );
++}
++#endif /* MBEDTLS_USE_TINYCRYPT */
+
+ #if defined(MBEDTLS_RSA_C)
+ /*
+@@ -651,6 +725,12 @@ int mbedtls_pk_parse_subpubkey( unsigned char **p, const unsigned char *end,
+         ret = pk_get_rsapubkey( p, end, mbedtls_pk_rsa( *pk ) );
+     } else
+ #endif /* MBEDTLS_RSA_C */
++#if defined(MBEDTLS_USE_TINYCRYPT)
++    if( pk_alg == MBEDTLS_PK_ECKEY )
++    {
++        ret = pk_get_ueccpubkey( p, end, (uint8_t*) pk->pk_ctx );
++    } else
++#else /* MBEDTLS_USE_TINYCRYPT */
+ #if defined(MBEDTLS_ECP_C)
+     if( pk_alg == MBEDTLS_PK_ECKEY_DH || pk_alg == MBEDTLS_PK_ECKEY )
+     {
+@@ -659,6 +739,7 @@ int mbedtls_pk_parse_subpubkey( unsigned char **p, const unsigned char *end,
+             ret = pk_get_ecpubkey( p, end, mbedtls_pk_ec( *pk ) );
+     } else
+ #endif /* MBEDTLS_ECP_C */
++#endif /* MBEDTLS_USE_TINYCRYPT */
+         ret = MBEDTLS_ERR_PK_UNKNOWN_PK_ALG;
+
+     if( ret == 0 && *p != end )
+@@ -854,6 +935,129 @@ cleanup:
+ }
+ #endif /* MBEDTLS_RSA_C */
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++static int pk_parse_key_sec1_der( mbedtls_uecc_keypair *keypair,
++                                  const unsigned char *key,
++                                  size_t keylen)
++{
++    int ret;
++    int version, pubkey_done;
++    size_t len;
++    mbedtls_asn1_buf params;
++    unsigned char *p = (unsigned char *) key;
++    unsigned char *end = p + keylen;
++    unsigned char *end2;
++
++    /*
++     * RFC 5915, or SEC1 Appendix C.4
++     *
++     * ECPrivateKey ::= SEQUENCE {
++     *      version        INTEGER { ecPrivkeyVer1(1) } (ecPrivkeyVer1),
++     *      privateKey     OCTET STRING,
++     *      parameters [0] ECParameters {{ NamedCurve }} OPTIONAL,
++     *      publicKey  [1] BIT STRING OPTIONAL
++     *    }
++     */
++    if( ( ret = mbedtls_asn1_get_tag( &p, end, &len,
++            MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE ) ) != 0 )
++    {
++        return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT + ret );
++    }
++
++    end = p + len;
++
++    if( ( ret = mbedtls_asn1_get_int( &p, end, &version ) ) != 0 )
++        return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT + ret );
++
++    if( version != 1 )
++        return( MBEDTLS_ERR_PK_KEY_INVALID_VERSION );
++
++    if( ( ret = mbedtls_asn1_get_tag( &p, end, &len, MBEDTLS_ASN1_OCTET_STRING ) ) != 0 )
++        return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT + ret );
++
++    if( mbedtls_platform_memcpy( keypair->private_key, p, len ) !=
++                                 keypair->private_key )
++    {
++        return( MBEDTLS_ERR_PLATFORM_FAULT_DETECTED );
++    }
++
++    p += len;
++
++    pubkey_done = 0;
++    if( p != end )
++    {
++        /*
++         * Is 'parameters' present?
++         */
++        if( ( ret = mbedtls_asn1_get_tag( &p, end, &len,
++                        MBEDTLS_ASN1_CONTEXT_SPECIFIC | MBEDTLS_ASN1_CONSTRUCTED | 0 ) ) == 0 )
++        {
++            if( ( ret = pk_get_ecparams( &p, p + len, &params) ) != 0 ||
++                ( ret = pk_use_ecparams( &params )  ) != 0 )
++            {
++                return( ret );
++            }
++        }
++        else if( ret != MBEDTLS_ERR_ASN1_UNEXPECTED_TAG )
++        {
++            return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT + ret );
++        }
++    }
++
++    if( p != end )
++    {
++        /*
++         * Is 'publickey' present? If not, or if we can't read it (eg because it
++         * is compressed), create it from the private key.
++         */
++        if( ( ret = mbedtls_asn1_get_tag( &p, end, &len,
++                        MBEDTLS_ASN1_CONTEXT_SPECIFIC | MBEDTLS_ASN1_CONSTRUCTED | 1 ) ) == 0 )
++        {
++            end2 = p + len;
++
++            if( ( ret = mbedtls_asn1_get_bitstring_null( &p, end2, &len ) ) != 0 )
++                return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT + ret );
++
++            if( p + len != end2 )
++                return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT +
++                        MBEDTLS_ERR_ASN1_LENGTH_MISMATCH );
++
++            if( ( ret = uecc_public_key_read_binary( keypair,
++                            (const unsigned char *) p, end2 - p ) ) == 0 )
++            {
++                pubkey_done = 1;
++            }
++            else
++            {
++                /*
++                 * The only acceptable failure mode of
++                 * uecc_public_key_read_binary() above
++                 * is if the point format is not recognized.
++                 */
++                if( ret != MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE )
++                    return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT );
++            }
++        }
++        else if( ret != MBEDTLS_ERR_ASN1_UNEXPECTED_TAG )
++        {
++            return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT + ret );
++        }
++    }
++
++    if( !pubkey_done )
++    {
++        ret = uECC_compute_public_key( keypair->private_key,
++                                       keypair->public_key );
++        if( ret == UECC_FAULT_DETECTED )
++            return( MBEDTLS_ERR_PLATFORM_FAULT_DETECTED );
++        if( ret != UECC_SUCCESS )
++            return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT );
++    }
++
++    return( 0 );
++}
++#else /* MBEDTLS_USE_TINYCRYPT */
++
+ #if defined(MBEDTLS_ECP_C)
+ /*
+  * Parse a SEC1 encoded private EC key
+@@ -982,6 +1186,7 @@ static int pk_parse_key_sec1_der( mbedtls_ecp_keypair *eck,
+     return( 0 );
+ }
+ #endif /* MBEDTLS_ECP_C */
++#endif /* MBEDTLS_USE_TINYCRYPT */
+
+ /*
+  * Parse an unencrypted PKCS#8 encoded private key
+@@ -1065,6 +1270,16 @@ static int pk_parse_key_pkcs8_unencrypted_der(
+         }
+     } else
+ #endif /* MBEDTLS_RSA_C */
++#if defined(MBEDTLS_USE_TINYCRYPT)
++    if( pk_alg == MBEDTLS_PK_ECKEY )
++    {
++        if( ( ret = pk_use_ecparams( &params ) ) != 0 ||
++            ( ret = pk_parse_key_sec1_der( mbedtls_pk_uecc( *pk ), p, len ) ) != 0)
++        {
++            return( ret );
++        }
++    } else
++#else /* MBEDTLS_USE_TINYCRYPT */
+ #if defined(MBEDTLS_ECP_C)
+     if( pk_alg == MBEDTLS_PK_ECKEY || pk_alg == MBEDTLS_PK_ECKEY_DH )
+     {
+@@ -1076,6 +1291,7 @@ static int pk_parse_key_pkcs8_unencrypted_der(
+         }
+     } else
+ #endif /* MBEDTLS_ECP_C */
++#endif /* MBEDTLS_USE_TINYCRYPT */
+         return( MBEDTLS_ERR_PK_UNKNOWN_PK_ALG );
+
+     return( 0 );
+@@ -1261,7 +1477,7 @@ int mbedtls_pk_parse_key( mbedtls_pk_context *pk,
+         return( ret );
+ #endif /* MBEDTLS_RSA_C */
+
+-#if defined(MBEDTLS_ECP_C)
++#if defined(MBEDTLS_ECP_C) || defined(MBEDTLS_USE_TINYCRYPT)
+     /* Avoid calling mbedtls_pem_read_buffer() on non-null-terminated string */
+     if( key[keylen - 1] != '\0' )
+         ret = MBEDTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
+@@ -1274,9 +1490,15 @@ int mbedtls_pk_parse_key( mbedtls_pk_context *pk,
+     {
+         pk_info = mbedtls_pk_info_from_type( MBEDTLS_PK_ECKEY );
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++        if( ( ret = mbedtls_pk_setup( pk, pk_info ) ) != 0 ||
++            ( ret = pk_parse_key_sec1_der( mbedtls_pk_uecc( *pk ),
++                                           pem.buf, pem.buflen ) ) != 0 )
++#else /* MBEDTLS_USE_TINYCRYPT */
+         if( ( ret = mbedtls_pk_setup( pk, pk_info ) ) != 0 ||
+             ( ret = pk_parse_key_sec1_der( mbedtls_pk_ec( *pk ),
+                                            pem.buf, pem.buflen ) ) != 0 )
++#endif /* MBEDTLS_USE_TINYCRYPT */
+         {
+             mbedtls_pk_free( pk );
+         }
+@@ -1290,7 +1512,7 @@ int mbedtls_pk_parse_key( mbedtls_pk_context *pk,
+         return( MBEDTLS_ERR_PK_PASSWORD_REQUIRED );
+     else if( ret != MBEDTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT )
+         return( ret );
+-#endif /* MBEDTLS_ECP_C */
++#endif /* MBEDTLS_ECP_C || MBEDTLS_USE_TINYCRYPT */
+
+     /* Avoid calling mbedtls_pem_read_buffer() on non-null-terminated string */
+     if( key[keylen - 1] != '\0' )
+@@ -1397,6 +1619,15 @@ int mbedtls_pk_parse_key( mbedtls_pk_context *pk,
+     mbedtls_pk_init( pk );
+ #endif /* MBEDTLS_RSA_C */
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++    pk_info = mbedtls_pk_info_from_type( MBEDTLS_PK_ECKEY );
++    if( mbedtls_pk_setup( pk, pk_info ) == 0 &&
++        pk_parse_key_sec1_der( mbedtls_pk_uecc( *pk),
++                               key, keylen) == 0)
++    {
++        return( 0 );
++    }
++#else /* MBEDTLS_USE_TINYCRYPT */
+ #if defined(MBEDTLS_ECP_C)
+     pk_info = mbedtls_pk_info_from_type( MBEDTLS_PK_ECKEY );
+     if( mbedtls_pk_setup( pk, pk_info ) == 0 &&
+@@ -1407,6 +1638,7 @@ int mbedtls_pk_parse_key( mbedtls_pk_context *pk,
+     }
+     mbedtls_pk_free( pk );
+ #endif /* MBEDTLS_ECP_C */
++#endif /* MBEDTLS_USE_TINYCRYPT */
+
+     /* If MBEDTLS_RSA_C is defined but MBEDTLS_ECP_C isn't,
+      * it is ok to leave the PK context initialized but not
+diff --git a/library/pkwrite.c b/library/pkwrite.c
+index 0da369818..79c7af3d8 100644
+--- a/library/pkwrite.c
++++ b/library/pkwrite.c
+@@ -104,6 +104,59 @@ end_of_export:
+ }
+ #endif /* MBEDTLS_RSA_C */
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++static int pk_write_ec_pubkey( unsigned char **p, unsigned char *start,
++                               mbedtls_pk_context const *key )
++{
++    size_t const len = 1 + 2 * NUM_ECC_BYTES;
++    mbedtls_uecc_keypair const * const uecc = mbedtls_pk_uecc( *key );
++
++    if( *p < start || (size_t)( *p - start ) < len )
++        return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
++
++    *p -= len;
++    (*p)[0] = 0x04;
++    mbedtls_platform_memcpy( *p + 1, uecc->public_key, 2 * NUM_ECC_BYTES );
++
++    return( (int) len );
++}
++
++/*
++ * privateKey  OCTET STRING -- always of length ceil(log2(n)/8)
++ */
++static int pk_write_ec_privkey( unsigned char **p, unsigned char *start,
++                                mbedtls_pk_context const *key )
++{
++    mbedtls_uecc_keypair const * const uecc = mbedtls_pk_uecc( *key );
++    return( mbedtls_asn1_write_octet_string(
++                p, start,
++                uecc->private_key,
++                NUM_ECC_BYTES ) );
++}
++
++/*
++ * ECParameters ::= CHOICE {
++ *   namedCurve         OBJECT IDENTIFIER
++ * }
++ */
++static int pk_write_ec_param( unsigned char **p, unsigned char *start,
++                              mbedtls_pk_context const *key )
++{
++    int ret;
++    size_t len = 0;
++    const char *oid;
++    size_t oid_len;
++    ((void) key);
++
++    if( ( ret = mbedtls_oid_get_oid_by_ec_grp( MBEDTLS_UECC_DP_SECP256R1,
++                                               &oid, &oid_len ) ) != 0 )
++        return( ret );
++
++    MBEDTLS_ASN1_CHK_ADD( len, mbedtls_asn1_write_oid( p, start, oid, oid_len ) );
++
++    return( (int) len );
++}
++#else /* MBEDTLS_USE_TINYCRYPT */
+ #if defined(MBEDTLS_ECP_C)
+ /*
+  * EC public key is an EC point
+@@ -172,6 +225,7 @@ exit:
+     return( ret );
+ }
+ #endif /* MBEDTLS_ECP_C */
++#endif /* MBEDTLS_USE_TINYCRYPT */
+
+ int mbedtls_pk_write_pubkey( unsigned char **p, unsigned char *start,
+                              const mbedtls_pk_context *key )
+@@ -189,9 +243,13 @@ int mbedtls_pk_write_pubkey( unsigned char **p, unsigned char *start,
+         MBEDTLS_ASN1_CHK_ADD( len, pk_write_rsa_pubkey( p, start, mbedtls_pk_rsa( *key ) ) );
+     else
+ #endif
+-#if defined(MBEDTLS_ECP_C)
++#if defined(MBEDTLS_ECP_C) || defined(MBEDTLS_USE_TINYCRYPT)
+     if( mbedtls_pk_get_type( key ) == MBEDTLS_PK_ECKEY )
+-        MBEDTLS_ASN1_CHK_ADD( len, pk_write_ec_pubkey( p, start, mbedtls_pk_ec( *key ) ) );
++#if defined(MBEDTLS_USE_TINYCRYPT)
++        MBEDTLS_ASN1_CHK_ADD( len, pk_write_ec_pubkey( p, start, key ) );
++#else
++    	MBEDTLS_ASN1_CHK_ADD( len, pk_write_ec_pubkey( p, start, mbedtls_pk_ec( *key ) ) );
++#endif
+     else
+ #endif
+ #if defined(MBEDTLS_USE_PSA_CRYPTO)
+@@ -254,10 +312,14 @@ int mbedtls_pk_write_pubkey_der( mbedtls_pk_context *key, unsigned char *buf, si
+     MBEDTLS_ASN1_CHK_ADD( len, mbedtls_asn1_write_tag( &c, buf, MBEDTLS_ASN1_BIT_STRING ) );
+
+     pk_type = mbedtls_pk_get_type( key );
+-#if defined(MBEDTLS_ECP_C)
++#if defined(MBEDTLS_ECP_C) || defined(MBEDTLS_USE_TINYCRYPT)
+     if( pk_type == MBEDTLS_PK_ECKEY )
+     {
++#if defined(MBEDTLS_USE_TINYCRYPT)
++        MBEDTLS_ASN1_CHK_ADD( par_len, pk_write_ec_param( &c, buf, key ) );
++#else
+         MBEDTLS_ASN1_CHK_ADD( par_len, pk_write_ec_param( &c, buf, mbedtls_pk_ec( *key ) ) );
++#endif
+     }
+ #endif
+ #if defined(MBEDTLS_USE_PSA_CRYPTO)
+@@ -402,10 +464,9 @@ int mbedtls_pk_write_key_der( mbedtls_pk_context *key, unsigned char *buf, size_
+     }
+     else
+ #endif /* MBEDTLS_RSA_C */
+-#if defined(MBEDTLS_ECP_C)
++#if defined(MBEDTLS_ECP_C) || defined(MBEDTLS_USE_TINYCRYPT)
+     if( mbedtls_pk_get_type( key ) == MBEDTLS_PK_ECKEY )
+     {
+-        mbedtls_ecp_keypair *ec = mbedtls_pk_ec( *key );
+         size_t pub_len = 0, par_len = 0;
+
+         /*
+@@ -420,7 +481,11 @@ int mbedtls_pk_write_key_der( mbedtls_pk_context *key, unsigned char *buf, size_
+          */
+
+         /* publicKey */
+-        MBEDTLS_ASN1_CHK_ADD( pub_len, pk_write_ec_pubkey( &c, buf, ec ) );
++#if defined(MBEDTLS_USE_TINYCRYPT)
++        MBEDTLS_ASN1_CHK_ADD( pub_len, pk_write_ec_pubkey( &c, buf, key ) );
++#else
++        MBEDTLS_ASN1_CHK_ADD( pub_len, pk_write_ec_pubkey( &c, buf, mbedtls_pk_ec( *key ) ) );
++#endif
+
+         if( c - buf < 1 )
+             return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
+@@ -436,7 +501,11 @@ int mbedtls_pk_write_key_der( mbedtls_pk_context *key, unsigned char *buf, size_
+         len += pub_len;
+
+         /* parameters */
+-        MBEDTLS_ASN1_CHK_ADD( par_len, pk_write_ec_param( &c, buf, ec ) );
++#if defined(MBEDTLS_USE_TINYCRYPT)
++        MBEDTLS_ASN1_CHK_ADD( par_len, pk_write_ec_param( &c, buf, key ) );
++#else
++        MBEDTLS_ASN1_CHK_ADD( par_len, pk_write_ec_param( &c, buf, mbedtls_pk_ec( *key ) ) );
++#endif
+
+         MBEDTLS_ASN1_CHK_ADD( par_len, mbedtls_asn1_write_len( &c, buf, par_len ) );
+         MBEDTLS_ASN1_CHK_ADD( par_len, mbedtls_asn1_write_tag( &c, buf,
+@@ -444,7 +513,11 @@ int mbedtls_pk_write_key_der( mbedtls_pk_context *key, unsigned char *buf, size_
+         len += par_len;
+
+         /* privateKey */
+-        MBEDTLS_ASN1_CHK_ADD( len, pk_write_ec_private( &c, buf, ec ) );
++#if defined(MBEDTLS_USE_TINYCRYPT)
++        MBEDTLS_ASN1_CHK_ADD( len, pk_write_ec_privkey( &c, buf, key ) );
++#else
++        MBEDTLS_ASN1_CHK_ADD( len, pk_write_ec_private( &c, buf, mbedtls_pk_ec( *key ) ) );
++#endif
+
+         /* version */
+         MBEDTLS_ASN1_CHK_ADD( len, mbedtls_asn1_write_int( &c, buf, 1 ) );
+@@ -454,7 +527,7 @@ int mbedtls_pk_write_key_der( mbedtls_pk_context *key, unsigned char *buf, size_
+                                                     MBEDTLS_ASN1_SEQUENCE ) );
+     }
+     else
+-#endif /* MBEDTLS_ECP_C */
++#endif /* MBEDTLS_ECP_C || MBEDTLS_USE_TINYCRYPT */
+         return( MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE );
+
+     return( (int) len );
+@@ -543,9 +616,19 @@ int mbedtls_pk_write_key_der( mbedtls_pk_context *key, unsigned char *buf, size_
+
+ #else /* MBEDTLS_ECP_C */
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++
++/* see above, replacing ECP_MAX_BYTES with 32 (256-bit) */
++#define ECP_PUB_DER_MAX_BYTES   30 + 2 * 32
++#define ECP_PRV_DER_MAX_BYTES   29 + 3 * 32
++
++#else /* MBEDTLS_USE_TINYCRYPT */
++
+ #define ECP_PUB_DER_MAX_BYTES   0
+ #define ECP_PRV_DER_MAX_BYTES   0
+
++#endif /* MBEDTLS_USE_TINYCRYPT */
++
+ #endif /* MBEDTLS_ECP_C */
+
+ #define PUB_DER_MAX_BYTES   RSA_PUB_DER_MAX_BYTES > ECP_PUB_DER_MAX_BYTES ? \
+@@ -598,15 +681,15 @@ int mbedtls_pk_write_key_pem( mbedtls_pk_context *key, unsigned char *buf, size_
+         end = PEM_END_PRIVATE_KEY_RSA;
+     }
+     else
+-#endif
+-#if defined(MBEDTLS_ECP_C)
++#endif /* MBEDTLS_RSA_C */
++#if defined(MBEDTLS_ECP_C) || defined(MBEDTLS_USE_TINYCRYPT)
+     if( mbedtls_pk_get_type( key ) == MBEDTLS_PK_ECKEY )
+     {
+         begin = PEM_BEGIN_PRIVATE_KEY_EC;
+         end = PEM_END_PRIVATE_KEY_EC;
+     }
+     else
+-#endif
++#endif /* MBEDTLS_ECP_C || MBEDTLS_USE_TINYCRYPT */
+         return( MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE );
+
+     if( ( ret = mbedtls_pem_write_buffer( begin, end,
+diff --git a/library/platform_util.c b/library/platform_util.c
+index 98fe5deb2..fdb1fe3ce 100644
+--- a/library/platform_util.c
++++ b/library/platform_util.c
+@@ -32,9 +32,41 @@
+ #include "mbedtls/platform.h"
+ #include "mbedtls/threading.h"
+
++//#if !defined(MBEDTLS_PLATFORM_C)
++//#include <stdlib.h>
++//#define mbedtls_calloc    calloc
++//#define mbedtls_free       free
++//#endif
++
++#if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
++#include "mbedtls/entropy_poll.h"
++#endif
++
++#if defined(MBEDTLS_USE_TINYCRYPT)
++#if defined(MBEDTLS_PLATFORM_FAULT_CALLBACKS)
++#include "platform_fault.h"
++#else
++static void mbedtls_platform_fault(){}
++#endif
++#endif /* MBEDTLS_USE_TINYCRYPT */
++
+ #include <stddef.h>
+ #include <string.h>
+
++/* Max number of loops for mbedtls_platform_random_delay. */
++#define MAX_RAND_DELAY  100
++
++/* Parameters for the linear congruential generator used as a non-cryptographic
++ * random number generator. The same parameters are used by e.g. ANSI C. */
++#define RAND_MULTIPLIER 1103515245
++#define RAND_INCREMENT  12345
++#define RAND_MODULUS    0x80000000
++
++/* The number of iterations after which the seed of the non-cryptographic
++ * random number generator will be changed. This is used only if the
++ * MBEDTLS_ENTROPY_HARDWARE_ALT option is enabled. */
++#define RAND_SEED_LIFE  10000
++
+ #if !defined(MBEDTLS_PLATFORM_ZEROIZE_ALT)
+ /*
+  * This implementation should never be optimized out by the compiler
+@@ -62,6 +94,34 @@
+  * mbedtls_platform_zeroize() to use a suitable implementation for their
+  * platform and needs.
+  */
++#if defined(MBEDTLS_USE_TINYCRYPT)
++
++void *mbedtls_platform_memset( void *, int, size_t );
++static void * (* const volatile memset_func)( void *, int, size_t ) = mbedtls_platform_memset;
++
++void *mbedtls_platform_zeroize( void *buf, size_t len )
++{
++    volatile size_t vlen = len;
++
++    MBEDTLS_INTERNAL_VALIDATE_RET( ( len == 0 || buf != NULL ), NULL );
++
++    if( vlen > 0 )
++    {
++        return memset_func( buf, 0, vlen );
++    }
++    else
++    {
++        mbedtls_platform_random_delay();
++        if( vlen == 0 && vlen == len )
++        {
++            return buf;
++        }
++    }
++    return NULL;
++}
++
++#else
++
+ static void * (* const volatile memset_func)( void *, int, size_t ) = memset;
+
+ void mbedtls_platform_zeroize( void *buf, size_t len )
+@@ -71,8 +131,284 @@ void mbedtls_platform_zeroize( void *buf, size_t len )
+     if( len > 0 )
+         memset_func( buf, 0, len );
+ }
++
++#endif /* MBEDTLS_USE_TINYCRYPT */
++
+ #endif /* MBEDTLS_PLATFORM_ZEROIZE_ALT */
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++
++void *mbedtls_platform_memset( void *ptr, int value, size_t num )
++{
++    size_t i, start_offset = 0;
++    volatile size_t flow_counter = 0;
++    volatile char *b = ptr;
++    char rnd_data;
++    if( num > 0 )
++    {
++        start_offset = (size_t) mbedtls_platform_random_in_range( (uint32_t) num );
++
++        rnd_data = (char) mbedtls_platform_random_in_range( 256 );
++
++        /* Perform a memset operations with random data and start from a random
++         * location */
++        for( i = start_offset; i < num; ++i )
++        {
++            b[i] = rnd_data;
++            flow_counter++;
++        }
++
++        /* Start from a random location with target data */
++        for( i = start_offset; i < num; ++i )
++        {
++            b[i] = value;
++            flow_counter++;
++        }
++
++        /* Second memset operation with random data */
++        for( i = 0; i < start_offset; ++i )
++        {
++            b[i] = rnd_data;
++            flow_counter++;
++        }
++
++        /* Finish memset operation with correct data */
++        for( i = 0; i < start_offset; ++i )
++        {
++            b[i] = value;
++            flow_counter++;
++        }
++    }
++    /* check the correct number of iterations */
++    if( flow_counter == 2 * num )
++    {
++        mbedtls_platform_random_delay();
++        if( flow_counter == 2 * num )
++        {
++            return ptr;
++        }
++    }
++    mbedtls_platform_fault();
++    return NULL;
++}
++
++void *mbedtls_platform_memcpy( void *dst, const void *src, size_t num )
++{
++    size_t i;
++    volatile size_t flow_counter = 0;
++
++    if( num > 0 )
++    {
++        /* Randomize start offset. */
++        size_t start_offset = (size_t) mbedtls_platform_random_in_range( (uint32_t) num );
++        /* Randomize initial data to prevent leakage while copying */
++        uint32_t data = mbedtls_platform_random_in_range( 256 );
++
++        /* Use memset with random value at first to increase security - memset is
++        not normally part of the memcpy function and here can be useed
++        with regular, unsecured implementation */
++        memset( (void *) dst, data, num );
++
++        /* Make a copy starting from a random location. */
++        i = start_offset;
++        do
++        {
++            ( (char*) dst )[i] = ( (char*) src )[i];
++            flow_counter++;
++        }
++        while( ( i = ( i + 1 ) % num ) != start_offset );
++    }
++
++    /* check the correct number of iterations */
++    if( flow_counter == num )
++    {
++        mbedtls_platform_random_delay();
++        if( flow_counter == num )
++        {
++            return dst;
++        }
++    }
++    mbedtls_platform_fault();
++    return NULL;
++}
++
++int mbedtls_platform_memmove( void *dst, const void *src, size_t num )
++{
++    void *ret1 = NULL;
++    void *ret2 = NULL;
++    /* The buffers can have a common part, so we cannot do a copy from a random
++     * location. By using a temporary buffer we can do so, but the cost of it
++     * is using more memory and longer transfer time. */
++    void *tmp = mbedtls_calloc( 1, num );
++    if( tmp != NULL )
++    {
++        ret1 = mbedtls_platform_memcpy( tmp, src, num );
++        ret2 = mbedtls_platform_memcpy( dst, tmp, num );
++        mbedtls_free( tmp );
++        if( ret1 == tmp && ret2 == dst )
++        {
++            return 0;
++        }
++        return MBEDTLS_ERR_PLATFORM_FAULT_DETECTED;
++    }
++
++    return MBEDTLS_ERR_PLATFORM_ALLOC_FAILED;
++}
++
++#if !defined(MBEDTLS_DEPRECATED_REMOVED)
++int mbedtls_platform_memcmp( const void *buf1, const void *buf2, size_t num )
++{
++    return( mbedtls_platform_memequal( buf1, buf2, num ) );
++}
++#endif /* MBEDTLS_DEPRECATED_REMOVED */
++
++int mbedtls_platform_memequal( const void *buf1, const void *buf2, size_t num )
++{
++    volatile const unsigned char *A = (volatile const unsigned char *) buf1;
++    volatile const unsigned char *B = (volatile const unsigned char *) buf2;
++    volatile unsigned char diff = 0;
++
++    /* Start from a random location and check the correct number of iterations */
++    size_t i, flow_counter = 0;
++    size_t start_offset = 0;
++    if( num > 0 )
++    {
++        start_offset = (size_t) mbedtls_platform_random_in_range( (uint32_t) num );
++
++        for( i = start_offset; i < num; i++ )
++        {
++            unsigned char x = A[i], y = B[i];
++            flow_counter++;
++            diff |= x ^ y;
++        }
++
++        for( i = 0; i < start_offset; i++ )
++        {
++            unsigned char x = A[i], y = B[i];
++            flow_counter++;
++            diff |= x ^ y;
++        }
++    }
++    /* Return 0 only when diff is 0 and flow_counter is equal to num */
++    return( (int) diff | (int) ( flow_counter ^ num ) );
++}
++
++/* This function implements a non-cryptographic random number generator based
++ * on the linear congruential generator algorithm. Additionally, if the
++ * MBEDTLS_ENTROPY_HARDWARE_ALT flag is defined, the seed is set at the first
++ * call of this function with using a hardware random number generator and
++ * changed every RAND_SEED_LIFE number of iterations.
++ *
++ * The value of the returned number is in the range [0; 0xffff].
++ *
++ * Note: The range of values with a 16-bit precision is related to the modulo
++ * parameter of the generator and the fact that the function does not return the
++ * full value of the internal state of the generator.
++ */
++static uint32_t mbedtls_platform_random_uint16( void )
++{
++    /* Set random_state - the first random value should not be zero. */
++    static uint32_t random_state = RAND_INCREMENT;
++
++#if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
++
++    static uint32_t random_seed_life = 0;
++
++    if( 0 < random_seed_life )
++    {
++        --random_seed_life;
++    }
++    else
++    {
++        size_t olen = 0;
++        uint32_t hw_random;
++        mbedtls_hardware_poll( NULL,
++                               (unsigned char *) &hw_random, sizeof( hw_random ),
++                               &olen );
++        if( olen == sizeof( hw_random ) )
++        {
++            random_state ^= hw_random;
++            random_seed_life = RAND_SEED_LIFE;
++        }
++    }
++
++#endif /* MBEDTLS_ENTROPY_HARDWARE_ALT */
++
++    random_state = ( ( random_state * RAND_MULTIPLIER ) + RAND_INCREMENT ) % RAND_MODULUS;
++
++    /* Do not return the entire random_state to hide generator predictability for
++     * the next iteration */
++    return( ( random_state >> 15 ) & 0xffff );
++}
++
++uint32_t mbedtls_platform_random_uint32( void )
++{
++    return( ( mbedtls_platform_random_uint16() << 16 ) |
++              mbedtls_platform_random_uint16() );
++}
++
++void mbedtls_platform_random_buf( uint8_t *buf, size_t len )
++{
++    volatile size_t flow_control = 0, flow_control_check = len;
++    uint16_t val;
++
++    while( len > 1 )
++    {
++        val = mbedtls_platform_random_uint16();
++        buf[len-1] = (uint8_t)val;
++        buf[len-2] = (uint8_t)(val>>8);
++        len -= 2;
++        flow_control += 2;
++    }
++    if( len == 1 )
++    {
++        buf[0] = (uint8_t)mbedtls_platform_random_uint16();
++        flow_control ++;
++    }
++
++    if ( flow_control == flow_control_check )
++    {
++        return;
++    }
++    mbedtls_platform_fault();
++}
++
++uint32_t mbedtls_platform_random_in_range( uint32_t num )
++{
++    return mbedtls_platform_random_uint32() % num;
++}
++
++void mbedtls_platform_random_delay( void )
++{
++#if defined(MBEDTLS_FI_COUNTERMEASURES)
++    uint32_t rn_1, rn_2, rn_3;
++    volatile size_t i = 0;
++    uint8_t shift;
++
++    rn_1 = mbedtls_platform_random_in_range( MAX_RAND_DELAY );
++    rn_2 = mbedtls_platform_random_in_range( 0xffffffff ) + 1;
++    rn_3 = mbedtls_platform_random_in_range( 0xffffffff ) + 1;
++
++    do
++    {
++        i++;
++        /* Dummy calculations to increase the time between iterations and
++         * make side channel attack more difficult by reducing predictability
++         * of its behaviour. */
++        shift = ( rn_2 & 0x07 ) + 1;
++        if ( i % 2 )
++            rn_2 = ( rn_2 >> shift ) | ( rn_2 << ( 32 - shift ) );
++        else
++            rn_3 = ( rn_3 << shift ) | ( rn_3 >> ( 32 - shift ) );
++        rn_2 ^= rn_3;
++    } while( i < rn_1 || rn_2 == 0 || rn_3 == 0 );
++
++#endif /* MBEDTLS_FI_COUNTERMEASURES */
++    return;
++}
++
++#endif /* MBEDTLS_USE_TINYCRYPT */
++
+ #if defined(MBEDTLS_HAVE_TIME_DATE) && !defined(MBEDTLS_PLATFORM_GMTIME_R_ALT)
+ #include <time.h>
+ #if !defined(_WIN32) && (defined(unix) || \
+diff --git a/library/x509_crt.c b/library/x509_crt.c
+index a623c57a6..8ec308bb5 100644
+--- a/library/x509_crt.c
++++ b/library/x509_crt.c
+@@ -120,7 +120,9 @@ const mbedtls_x509_crt_profile mbedtls_x509_crt_profile_next =
+     MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA384 ) |
+     MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA512 ),
+     0xFFFFFFF, /* Any PK alg    */
+-#if defined(MBEDTLS_ECP_C)
++#if defined(MBEDTLS_USE_TINYCRYPT)
++    MBEDTLS_X509_ID_FLAG( MBEDTLS_UECC_DP_SECP256R1 ),
++#elif defined(MBEDTLS_ECP_C)
+     /* Curves at or above 128-bit security level */
+     MBEDTLS_X509_ID_FLAG( MBEDTLS_ECP_DP_SECP256R1 ) |
+     MBEDTLS_X509_ID_FLAG( MBEDTLS_ECP_DP_SECP384R1 ) |
+@@ -146,7 +148,9 @@ const mbedtls_x509_crt_profile mbedtls_x509_crt_profile_suiteb =
+     /* Only ECDSA */
+     MBEDTLS_X509_ID_FLAG( MBEDTLS_PK_ECDSA ) |
+     MBEDTLS_X509_ID_FLAG( MBEDTLS_PK_ECKEY ),
+-#if defined(MBEDTLS_ECP_C)
++#if defined(MBEDTLS_USE_TINYCRYPT)
++    MBEDTLS_X509_ID_FLAG( MBEDTLS_UECC_DP_SECP256R1 ),
++#elif defined(MBEDTLS_ECP_C)
+     /* Only NIST P-256 and P-384 */
+     MBEDTLS_X509_ID_FLAG( MBEDTLS_ECP_DP_SECP256R1 ) |
+     MBEDTLS_X509_ID_FLAG( MBEDTLS_ECP_DP_SECP384R1 ),
+@@ -207,6 +211,16 @@ static int x509_profile_check_key( const mbedtls_x509_crt_profile *profile,
+     }
+ #endif
+
++#if defined(MBEDTLS_USE_TINYCRYPT)
++    if( pk_alg == MBEDTLS_PK_ECKEY )
++    {
++        if( ( profile->allowed_curves & MBEDTLS_UECC_DP_SECP256R1 ) != 0 )
++            return( 0 );
++
++        return( -1 );
++    }
++#endif /* MBEDTLS_USE_TINYCRYPT */
++
+ #if defined(MBEDTLS_ECP_C)
+     if( pk_alg == MBEDTLS_PK_ECDSA ||
+         pk_alg == MBEDTLS_PK_ECKEY ||
+diff --git a/library/x509write_csr.c b/library/x509write_csr.c
+index c7c8032be..bcaaf5bec 100644
+--- a/library/x509write_csr.c
++++ b/library/x509write_csr.c
+@@ -298,7 +298,11 @@ int mbedtls_x509write_csr_der( mbedtls_x509write_csr *ctx, unsigned char *buf,
+     int ret;
+     unsigned char *sig;
+
+-    if( ( sig = mbedtls_calloc( 1, MBEDTLS_PK_SIGNATURE_MAX_SIZE ) ) == NULL )
++#if defined(MBEDTLS_USE_TINYCRYPT)
++    if( ( sig = mbedtls_calloc( 1, MBEDTLS_PK_SIGNATURE_MAX_SIZE + 1 ) ) == NULL )
++#else
++	if( ( sig = mbedtls_calloc( 1, MBEDTLS_PK_SIGNATURE_MAX_SIZE ) ) == NULL )
++#endif
+     {
+         return( MBEDTLS_ERR_X509_ALLOC_FAILED );
+     }
