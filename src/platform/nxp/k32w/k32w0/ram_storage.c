@@ -47,26 +47,20 @@
 #define RAM_STORAGE_PRINTF(...)
 #endif
 
-struct settingsBlock
-{
-    uint16_t key;
-    uint16_t length;
-} __attribute__((packed));
-
 static rsError ramStorageAdd(ramBufferDescriptor * pBuffer, uint16_t aKey, const uint8_t * aValue, uint16_t aValueLength)
 {
     rsError error;
-    struct settingsBlock * currentBlock;
-    const uint16_t newBlockLength = sizeof(struct settingsBlock) + aValueLength;
+    settingsBlock * currentBlock;
+    const uint16_t newBlockLength = sizeof(settingsBlock) + aValueLength;
 
-    if (*(pBuffer->ramBufferLen) + newBlockLength <= pBuffer->ramBufferMaxLen)
+    if (pBuffer->ramBufferLen + newBlockLength <= pBuffer->ramBufferMaxLen)
     {
-        currentBlock         = (struct settingsBlock *) &pBuffer->pRamBuffer[*(pBuffer->ramBufferLen)];
+        currentBlock         = (settingsBlock *) &pBuffer->pRamBuffer[pBuffer->ramBufferLen];
         currentBlock->key    = aKey;
         currentBlock->length = aValueLength;
 
-        memcpy(&pBuffer->pRamBuffer[*(pBuffer->ramBufferLen) + sizeof(struct settingsBlock)], aValue, aValueLength);
-        *(pBuffer->ramBufferLen) += newBlockLength;
+        memcpy(&pBuffer->pRamBuffer[pBuffer->ramBufferLen + sizeof(settingsBlock)], aValue, aValueLength);
+        pBuffer->ramBufferLen += newBlockLength;
 
         error = RS_ERROR_NONE;
     }
@@ -86,12 +80,12 @@ rsError ramStorageGet(const ramBufferDescriptor * pBuffer, uint16_t aKey, int aI
     uint16_t valueLength = 0;
     uint16_t readLength;
     int currentIndex = 0;
-    const struct settingsBlock * currentBlock;
+    const settingsBlock * currentBlock;
     rsError error = RS_ERROR_NOT_FOUND;
 
-    while (i < *(pBuffer->ramBufferLen))
+    while (i < pBuffer->ramBufferLen)
     {
-        currentBlock = (struct settingsBlock *) &pBuffer->pRamBuffer[i];
+        currentBlock = (settingsBlock *) &pBuffer->pRamBuffer[i];
 
         if (aKey == currentBlock->key)
         {
@@ -108,7 +102,7 @@ rsError ramStorageGet(const ramBufferDescriptor * pBuffer, uint16_t aKey, int aI
                         readLength = *aValueLength;
                     }
 
-                    memcpy(aValue, &pBuffer->pRamBuffer[i + sizeof(struct settingsBlock)], readLength);
+                    memcpy(aValue, &pBuffer->pRamBuffer[i + sizeof(settingsBlock)], readLength);
                 }
 
                 valueLength = currentBlock->length;
@@ -119,7 +113,7 @@ rsError ramStorageGet(const ramBufferDescriptor * pBuffer, uint16_t aKey, int aI
             currentIndex++;
         }
 
-        i += sizeof(struct settingsBlock) + currentBlock->length;
+        i += sizeof(settingsBlock) + currentBlock->length;
     }
 
     if (aValueLength != NULL)
@@ -137,25 +131,25 @@ rsError ramStorageSet(ramBufferDescriptor * pBuffer, uint16_t aKey, const uint8_
     uint16_t i = 0;
     uint16_t currentBlockLength;
     uint16_t nextBlockStart;
-    const struct settingsBlock * currentBlock;
+    const settingsBlock * currentBlock;
 
     // Delete all entries of aKey
-    while (i < *(pBuffer->ramBufferLen))
+    while (i < pBuffer->ramBufferLen)
     {
-        currentBlock       = (struct settingsBlock *) &pBuffer->pRamBuffer[i];
-        currentBlockLength = sizeof(struct settingsBlock) + currentBlock->length;
+        currentBlock       = (settingsBlock *) &pBuffer->pRamBuffer[i];
+        currentBlockLength = sizeof(settingsBlock) + currentBlock->length;
 
         if (aKey == currentBlock->key)
         {
             nextBlockStart = i + currentBlockLength;
 
-            if (nextBlockStart < *(pBuffer->ramBufferLen))
+            if (nextBlockStart < pBuffer->ramBufferLen)
             {
-                memmove(&pBuffer->pRamBuffer[i], &pBuffer->pRamBuffer[nextBlockStart], *(pBuffer->ramBufferLen) - nextBlockStart);
+                memmove(&pBuffer->pRamBuffer[i], &pBuffer->pRamBuffer[nextBlockStart], pBuffer->ramBufferLen - nextBlockStart);
             }
 
-            assert(*(pBuffer->ramBufferLen) >= currentBlockLength);
-            *(pBuffer->ramBufferLen) -= currentBlockLength;
+            assert(pBuffer->ramBufferLen >= currentBlockLength);
+            pBuffer->ramBufferLen -= currentBlockLength;
         }
         else
         {
@@ -172,13 +166,13 @@ rsError ramStorageDelete(ramBufferDescriptor * pBuffer, uint16_t aKey, int aInde
     int currentIndex = 0;
     uint16_t nextBlockStart;
     uint16_t currentBlockLength;
-    const struct settingsBlock * currentBlock;
+    const settingsBlock * currentBlock;
     rsError error = RS_ERROR_NOT_FOUND;
 
-    while (i < *(pBuffer->ramBufferLen))
+    while (i < pBuffer->ramBufferLen)
     {
-        currentBlock       = (struct settingsBlock *) &pBuffer->pRamBuffer[i];
-        currentBlockLength = sizeof(struct settingsBlock) + currentBlock->length;
+        currentBlock       = (settingsBlock *) &pBuffer->pRamBuffer[i];
+        currentBlockLength = sizeof(settingsBlock) + currentBlock->length;
 
         if (aKey == currentBlock->key)
         {
@@ -186,14 +180,14 @@ rsError ramStorageDelete(ramBufferDescriptor * pBuffer, uint16_t aKey, int aInde
             {
                 nextBlockStart = i + currentBlockLength;
 
-                if (nextBlockStart < *(pBuffer->ramBufferLen))
+                if (nextBlockStart < pBuffer->ramBufferLen)
                 {
                     memmove(&pBuffer->pRamBuffer[i], &pBuffer->pRamBuffer[nextBlockStart],
-                            *(pBuffer->ramBufferLen) - nextBlockStart);
+                            pBuffer->ramBufferLen - nextBlockStart);
                 }
 
-                assert(*(pBuffer->ramBufferLen) >= currentBlockLength);
-                *(pBuffer->ramBufferLen) -= currentBlockLength;
+                assert(pBuffer->ramBufferLen >= currentBlockLength);
+                pBuffer->ramBufferLen -= currentBlockLength;
 
                 error = RS_ERROR_NONE;
                 break;
