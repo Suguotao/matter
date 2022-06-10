@@ -33,6 +33,8 @@
 extern "C" {
 #endif
 
+#define RAM_DESC_HEADER_SIZE (sizeof(ramDescr->ramBufferLen) + sizeof(ramDescr->ramBufferMaxLen))
+
 typedef enum
 {
     RS_ERROR_NONE,

@@ -44,15 +44,14 @@ namespace Internal {
 #endif
 
 static ramBufferDescriptor *ramDescr;
-
-#define RAM_DESC_HEADER_SIZE (sizeof(ramDescr->ramBufferLen) + sizeof(ramDescr->ramBufferMaxLen))
+osaMutexId_t K32WConfig::pdmMutexHandle = NULL;
 
 static rsError AddToRamStorage(ramBufferDescriptor **pBuffer, uint16_t aKey, const uint8_t * aValue, uint16_t aValueLength)
 {
     rsError err;
     uint32_t allocSize = (*pBuffer)->ramBufferMaxLen;
     ramBufferDescriptor *ptr = NULL;
-
+    K32WConfig::MutexLock(K32WConfig::pdmMutexHandle, osaWaitForever_c);
     if ( allocSize <= (*pBuffer)->ramBufferLen + aValueLength )
     {
         while (allocSize < (*pBuffer)->ramBufferLen + aValueLength)
@@ -66,12 +65,13 @@ static rsError AddToRamStorage(ramBufferDescriptor **pBuffer, uint16_t aKey, con
         ptr = (ramBufferDescriptor *) realloc((void *)(*pBuffer), allocSize);
         VerifyOrExit((NULL !=  ptr), err = RS_ERROR_NO_BUFS);
         *pBuffer = ptr;
-        (*pBuffer)->ramBufferMaxLen = allocSize;
+        (*pBuffer)->ramBufferMaxLen = allocSize - RAM_DESC_HEADER_SIZE;
     }
 
    err = ramStorageSet(*pBuffer, aKey, aValue, aValueLength);
 
 exit:
+    K32WConfig::MutexUnlock(K32WConfig::pdmMutexHandle);
     return err;
 }
 
@@ -82,6 +82,9 @@ CHIP_ERROR K32WConfig::Init()
     uint16_t bytesRead, recordSize;
     bool bLoadDataFromNvm = false;
     uint32_t allocSize = CHIP_CONFIG_RAM_BUFFER_SIZE;
+
+    pdmMutexHandle = OSA_MutexCreate();
+    VerifyOrExit((NULL != pdmMutexHandle), err = CHIP_ERROR_NO_MEMORY);
 
     /* Initialise the Persistent Data Manager */
     pdmStatus = PDM_Init();
@@ -120,6 +123,24 @@ CHIP_ERROR K32WConfig::Init()
 
 exit:
     return err;
+}
+
+void K32WConfig::MutexLock(osaMutexId_t mutexId, uint32_t millisec)
+{
+    osaStatus_t status = OSA_MutexLock(mutexId, millisec);
+    if (osaStatus_Success != status)
+    {
+        ChipLogProgress(DeviceLayer, "OSA mutex lock failed.");
+    }
+}
+
+void K32WConfig::MutexUnlock(osaMutexId_t mutexId)
+{
+    osaStatus_t status = OSA_MutexUnlock(mutexId);
+    if (osaStatus_Success != status)
+    {
+        ChipLogProgress(DeviceLayer, "OSA mutex unlock failed.");
+    }
 }
 
 void K32WConfig::PDMSystemEventCallback(uint32_t u32eventNumber, PDM_eSystemEventCode eSystemEventCode)
@@ -306,7 +327,9 @@ CHIP_ERROR K32WConfig::ClearConfigValue(Key key)
     PDM_teStatus pdmStatus;
 
     VerifyOrExit(ValidConfigKey(key), err = CHIP_DEVICE_ERROR_CONFIG_NOT_FOUND); // Verify key id.
+    MutexLock(pdmMutexHandle, osaWaitForever_c);
     status = ramStorageDelete(ramDescr, key, 0);
+    MutexUnlock(pdmMutexHandle);
     SuccessOrExit(err = MapRamStorageStatus(status));
 
     pdmStatus = PDM_eSaveRecordDataInIdleTask((uint16_t) NVM_ID_CHIP_CONFIG_DATA, ramDescr,
@@ -336,14 +359,16 @@ CHIP_ERROR K32WConfig::FactoryResetConfig(void)
     CHIP_ERROR err = CHIP_NO_ERROR;
     PDM_teStatus pdmStatus;
 
+    MutexLock(pdmMutexHandle, osaWaitForever_c);
     FactoryResetConfigInternal(kMinConfigKey_ChipConfig, kMaxConfigKey_ChipConfig);
     FactoryResetConfigInternal(kMinConfigKey_KVSKey, kMaxConfigKey_KVSKey);
     FactoryResetConfigInternal(kMinConfigKey_KVSValue, kMaxConfigKey_KVSValue);
-
     pdmStatus = PDM_eSaveRecordData((uint16_t) NVM_ID_CHIP_CONFIG_DATA, ramDescr, ramDescr->ramBufferLen + RAM_DESC_HEADER_SIZE);
+    MutexUnlock(pdmMutexHandle);
     SuccessOrExit(err = MapPdmStatus(pdmStatus));
 
 exit:
+    free((void*)ramDescr);
     return err;
 }
 

@@ -30,6 +30,7 @@
 
 #include "PDM.h"
 #include "ram_storage.h"
+#include "fsl_os_abstraction.h"
 
 namespace chip {
 namespace DeviceLayer {
@@ -135,6 +136,12 @@ public:
     static bool ValidConfigKey(Key key);
 
     static void RunConfigUnitTest(void);
+
+    // Log error wrappers for OSA mutex lock/unlock.
+    static void MutexLock(osaMutexId_t mutexId, uint32_t millisec);
+    static void MutexUnlock(osaMutexId_t mutexId);
+
+    static osaMutexId_t pdmMutexHandle;
 
 protected:
     static constexpr uint8_t GetPDMId(uint32_t key);

@@ -200,6 +200,7 @@ rsError ramStorageDelete(ramBufferDescriptor * pBuffer, uint16_t aKey, int aInde
 
         i += currentBlockLength;
     }
+    pBuffer->ramBufferMaxLen = pBuffer->ramBufferLen;
     RAM_STORAGE_PRINTF("key = %d err = %d", aKey, error);
     return error;
 }

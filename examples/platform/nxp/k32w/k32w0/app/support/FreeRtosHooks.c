@@ -237,7 +237,9 @@ extern void OTAIdleActivities();
 
 void vApplicationIdleHook(void)
 {
+    OSA_InterruptDisable();
     PDM_vIdleTask(PDM_MAX_WRITES_INFINITE);
+    OSA_InterruptEnable();
     OTAIdleActivities();
 
     BOARD_ActionOnIdle();
