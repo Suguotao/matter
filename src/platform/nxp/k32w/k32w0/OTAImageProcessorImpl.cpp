@@ -213,7 +213,7 @@ bool OTAImageProcessorImpl::IsFirstImageRun()
 {
     bool firstRun = false;
 
-    if (CHIP_NO_ERROR == (K32WConfig::ReadConfigValue(K32WConfig::kConfigKey_FirstRunOfOTAImage, firstRun)))
+    if (CHIP_NO_ERROR == K32WConfig::ReadConfigValue(K32WConfig::kConfigKey_FirstRunOfOTAImage, firstRun))
     {
         return firstRun;
     }
@@ -280,9 +280,7 @@ void OTAImageProcessorImpl::HandleApply(intptr_t context)
     OTA_CommitImage(NULL);
     if (OTA_ImageAuthenticate() == gOtaImageAuthPass_c)
     {
-
-        /* TODO internal: MATTER-126 */
-        /*if (CHIP_NO_ERROR == K32WConfig::WriteConfigValue(K32WConfig::kConfigKey_FirstRunOfOTAImage, firstRun)) */
+        if (CHIP_NO_ERROR == K32WConfig::WriteConfigValueImmediately(K32WConfig::kConfigKey_FirstRunOfOTAImage, firstRun))
         {
             /* Set the necessary information to inform the SSBL that a new image is available */
             DeviceLayer::ConfigurationMgr().StoreSoftwareVersion(imageProcessor->mSoftwareVersion);
@@ -290,10 +288,14 @@ void OTAImageProcessorImpl::HandleApply(intptr_t context)
             ChipLogProgress(SoftwareUpdate, "OTA image authentication success. Device will reboot with the new image!");
             ResetMCU();
         }
+        else
+        {
+            ChipLogProgress(SoftwareUpdate, "Failed to write kConfigKey_FirstRunOfOTAImage key.");
+        }
     }
     else
     {
-        ChipLogError(SoftwareUpdate, "Image authentication error");
+        ChipLogError(SoftwareUpdate, "Image authentication error.");
     }
 }
 

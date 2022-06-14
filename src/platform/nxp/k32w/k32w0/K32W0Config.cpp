@@ -244,6 +244,24 @@ exit:
     return err;
 }
 
+CHIP_ERROR K32WConfig::WriteConfigValueImmediately(Key key, bool val)
+{
+    CHIP_ERROR err;
+    rsError status;
+    PDM_teStatus pdmStatus;
+
+    VerifyOrExit(ValidConfigKey(key), err = CHIP_DEVICE_ERROR_CONFIG_NOT_FOUND); // Verify key id.
+    status = AddToRamStorage(&ramDescr, key, (uint8_t *)&val, sizeof(bool));
+    SuccessOrExit(err = MapRamStorageStatus(status));
+
+    pdmStatus = PDM_eSaveRecordData((uint16_t) NVM_ID_CHIP_CONFIG_DATA, ramDescr,
+                                               ramDescr->ramBufferLen + RAM_DESC_HEADER_SIZE);
+    SuccessOrExit(err = MapPdmStatus(pdmStatus));
+
+exit:
+    return err;
+}
+
 CHIP_ERROR K32WConfig::WriteConfigValue(Key key, uint32_t val)
 {
     CHIP_ERROR err;
