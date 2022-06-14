@@ -83,7 +83,11 @@ void OTAImageProcessorImpl::TriggerNewRequestForData()
 {
     if (mDownloader)
     {
+        // The chip lock needs to be taken here to avoid having race conditions
+        // when trying to read attributes during OTA transfer. See https://github.com/project-chip/connectedhomeip/issues/18327
+        PlatformMgr().LockChipStack();
         this->mDownloader->FetchNextData();
+        PlatformMgr().UnlockChipStack();
     }
 }
 
