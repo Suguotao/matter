@@ -50,18 +50,21 @@ static rsError AddToRamStorage(ramBufferDescriptor **pBuffer, uint16_t aKey, con
 {
     rsError err;
     uint32_t allocSize = (*pBuffer)->ramBufferMaxLen;
+    const uint16_t newBlockLength = sizeof(settingsBlock) + aValueLength;
     ramBufferDescriptor *ptr = NULL;
+
     K32WConfig::MutexLock(K32WConfig::pdmMutexHandle, osaWaitForever_c);
-    if ( allocSize <= (*pBuffer)->ramBufferLen + aValueLength )
+    if (allocSize <= (*pBuffer)->ramBufferLen + newBlockLength)
     {
-        while (allocSize < (*pBuffer)->ramBufferLen + aValueLength)
+        while (allocSize < (*pBuffer)->ramBufferLen + newBlockLength)
         {
-            /* Need to realocate the memory buffer, increase size by 512B until nvm data fits */
+            // Need to realocate the memory buffer, increase size by 512B until nvm data fits.
             allocSize += 512;
         }
 
-        allocSize += RAM_DESC_HEADER_SIZE;
-
+        // Struct header size and next block's header size must be considered
+        // when reallocating memory.
+        allocSize += RAM_DESC_HEADER_SIZE + sizeof(settingsBlock);
         ptr = (ramBufferDescriptor *) realloc((void *)(*pBuffer), allocSize);
         VerifyOrExit((NULL !=  ptr), err = RS_ERROR_NO_BUFS);
         *pBuffer = ptr;
