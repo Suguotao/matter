@@ -47,6 +47,7 @@ using namespace ::chip::Logging;
 #include "app_dual_mode_low_power.h"
 #include "app_dual_mode_switch.h"
 #include "radio.h"
+#include "OtaSupport.h"
 #endif
 
 #include "MacSched.h"
@@ -261,6 +262,7 @@ static void dm_switch_wakeupCallBack(void)
     }
     dm_lp_wakeup();
 }
+
 
 static void dm_switch_preSleepCallBack(void)
 {

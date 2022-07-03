@@ -534,6 +534,7 @@ template("k32w0_sdk") {
         ]
       } else {
         sources += [
+<<<<<<< HEAD
           "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/clock_config.c",
           "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/pin_mux.c",
         ]
@@ -543,6 +544,13 @@ template("k32w0_sdk") {
           "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/lped/bm/clock_config.c",
           "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/lped/bm/hardware_init.c",
           "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/lped/bm/pin_mux.c",
+=======
+          "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/board.c",
+          "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/board_utility.c",
+          "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/clock_config.c",
+          "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/hardware_init.c",
+          "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/pin_mux.c",
+>>>>>>> [MATTER-266] Fix low-power
         ]
       } else {
         sources += [
