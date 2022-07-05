@@ -64,25 +64,25 @@ k32w0_sdk("sdk") {
   }
 }
 
-k32w0_executable("light_app") {
-  output_name = "chip-k32w0x-light-example"
+k32w0_executable("contact_sensor_app") {
+  output_name = "chip-k32w0x-contact-example"
 
   sources = [
     "${k32w0_platform_dir}/util/LEDWidget.cpp",
     "${k32w0_platform_dir}/util/include/LEDWidget.h",
     "main/AppTask.cpp",
-    "main/LightingManager.cpp",
+    "main/ContactSensorManager.cpp",
     "main/ZclCallbacks.cpp",
     "main/include/AppEvent.h",
     "main/include/AppTask.h",
-    "main/include/LightingManager.h",
+    "main/include/ContactSensorManager.h",
     "main/main.cpp",
   ]
 
   deps = [
     ":sdk",
     "${chip_root}/examples/common/QRCode",
-    "${chip_root}/examples/lighting-app/lighting-common/",
+    "${chip_root}/examples/contact-sensor-app/contact-sensor-common",
     "${chip_root}/src/lib",
     "${chip_root}/third_party/mbedtls:mbedtls",
     "${k32w0_platform_dir}/app/support:freertos_mbedtls_utils",
@@ -102,11 +102,13 @@ k32w0_executable("light_app") {
 
   cflags = [ "-Wconversion" ]
 
+  output_dir = root_out_dir
+
   ldscript = "${k32w0_platform_dir}/app/ldscripts/chip-k32w0x-linker.ld"
 
   inputs = [ ldscript ]
 
-  ldflags = [ "-T" + rebase_path(ldscript, root_build_dir)]
+  ldflags = [ "-T" + rebase_path(ldscript, root_build_dir) ]
 
   if (chip_enable_ota_requestor)
   {
@@ -115,43 +117,25 @@ k32w0_executable("light_app") {
          "-Wl,__app_load_address__=0x4000",
          "-Wl,--defsym",
          "-Wl,__app_stated_size__=0x99A00",
+         "-Wl,-print-memory-usage",
     ]
   }
-
-  if (chip_enable_ota_requestor) {
-    ldflags += [
-      "-Wl,--defsym",
-      "-Wl,__app_load_address__=0x4000",
-      "-Wl,--defsym",
-      "-Wl,__app_stated_size__=0x99A00",
-    ]
-  }
-
-  if (chip_enable_ota_requestor) {
-    ldflags += [
-      "-Wl,--defsym",
-      "-Wl,__app_load_address__=0x4000",
-      "-Wl,--defsym",
-      "-Wl,__app_stated_size__=0x99A00",
-    ]
-  }
-
-  output_dir = root_out_dir
 }
 
 if (chip_pw_tokenizer_logging) {
-  pw_tokenizer_database("light_app.database") {
-    database = "$root_build_dir/chip-k32w0x-light-example-database.bin"
+  pw_tokenizer_database("contact_sensor_app.database") {
+    database = "$root_build_dir/chip-k32w0x-contact-example-database.bin"
     create = "binary"
-    deps = [ ":light_app" ]
-    optional_paths = [ "$root_build_dir/chip-k32w0x-light-example" ]
+    deps = [ ":contact_sensor_app" ]
+    optional_paths = [ "$root_build_dir/chip-k32w0x-contact-example" ]
   }
 }
 
+
 group("k32w0") {
-  deps = [ ":light_app" ]
+  deps = [ ":contact_sensor_app" ]
   if (chip_pw_tokenizer_logging) {
-    deps += [ ":light_app.database" ]
+    deps += [ ":contact_sensor_app.database" ]
   }
 }
 

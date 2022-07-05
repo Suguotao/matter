@@ -31,6 +31,7 @@
 #include "PWR_Interface.h"
 #include "TimersManager.h"
 #include "board.h"
+#include "PDM.h"
 
 /* Bluetooth Low Energy */
 #include "ble_config.h"
