@@ -31,6 +31,14 @@
 #include "FreeRtosHooks.h"
 #include "app_config.h"
 
+#ifdef K32WMCM_APP_BUILD
+#define string string_shadow
+#include "MMAC.h"
+#include "mac_sap.h"
+#include "AppApi.h"
+#undef string
+#endif
+
 using namespace ::chip;
 using namespace ::chip::Inet;
 using namespace ::chip::DeviceLayer;
@@ -44,6 +52,31 @@ extern InitFunc __init_array_end;
 uint8_t __attribute__((section(".heap"))) ucHeap[HEAP_SIZE];
 
 extern "C" void sched_enable();
+
+#define NORMAL_PWR_LIMIT        10    /* dBm */
+
+#ifdef K32WMCM_APP_BUILD
+/* Must be called before zps_eAplAfInit() */
+void APP_SetHighTxPowerMode();
+
+/* Must be called after zps_eAplAfInit() */
+void APP_SetMaxTxPower();
+
+#undef HIGH_TX_PWR_LIMIT
+#define HIGH_TX_PWR_LIMIT 15    /* dBm */
+/* High Tx power */
+void APP_SetHighTxPowerMode()
+{
+    if (CHIP_IS_HITXPOWER_CAPABLE())
+        vMMAC_SetTxPowerMode(TRUE);
+}
+
+void APP_SetMaxTxPower()
+{
+    if (CHIP_IS_HITXPOWER_CAPABLE())
+        eAppApiPlmeSet(PHY_PIB_ATTR_TX_POWER, HIGH_TX_PWR_LIMIT);
+}
+#endif
 
 extern "C" void main_task(void const * argument)
 {
@@ -73,6 +106,10 @@ extern "C" void main_task(void const * argument)
     // Init Chip memory management before the stack
     chip::Platform::MemoryInit();
 
+#ifdef K32WMCM_APP_BUILD
+    APP_SetHighTxPowerMode();
+#endif
+
     err = PlatformMgr().InitChipStack();
     if (err != CHIP_NO_ERROR)
     {
@@ -97,6 +134,13 @@ extern "C" void main_task(void const * argument)
     {
         goto exit;
     }
+
+#ifdef K32WMCM_APP_BUILD
+    APP_SetMaxTxPower();
+    otPlatRadioSetTransmitPower(ThreadStackMgrImpl().OTInstance(), HIGH_TX_PWR_LIMIT);
+#else
+    otPlatRadioSetTransmitPower(ThreadStackMgrImpl().OTInstance(), NORMAL_PWR_LIMIT);
+#endif
 
     err = PlatformMgr().StartEventLoopTask();
     if (err != CHIP_NO_ERROR)
