@@ -520,6 +520,7 @@ template("k32w0_sdk") {
     ]
 
     if (chip_with_DK6) {
+<<<<<<< HEAD
       sources += [
         "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/board.c",
         "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/board_utility.c",
@@ -553,6 +554,8 @@ template("k32w0_sdk") {
 >>>>>>> [MATTER-266] Fix low-power
         ]
       } else {
+=======
+>>>>>>> [MATTER-266] Fixes
         sources += [
           "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/board.c",
           "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/board_utility.c",
@@ -570,8 +573,11 @@ template("k32w0_sdk") {
             "${k32w0_sdk_root}/boards/${board}/wireless_examples/openthread/reed/bm/pin_mux.c",
           ]
         }
+<<<<<<< HEAD
 >>>>>>> Sync with bitbucket.
       }
+=======
+>>>>>>> [MATTER-266] Fixes
     }
 
     if (chip_with_low_power != 0) {
