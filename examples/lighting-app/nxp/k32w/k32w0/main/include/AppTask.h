@@ -29,6 +29,7 @@
 
 #include "FreeRTOS.h"
 #include "timers.h"
+#include "LEDWidget.h"
 
 // Application-defined error codes in the CHIP_ERROR space.
 #define APP_ERROR_EVENT_QUEUE_FAILED CHIP_APPLICATION_ERROR(0x01)
@@ -37,6 +38,25 @@
 #define APP_ERROR_CREATE_TIMER_FAILED CHIP_APPLICATION_ERROR(0x04)
 #define APP_ERROR_START_TIMER_FAILED CHIP_APPLICATION_ERROR(0x05)
 #define APP_ERROR_STOP_TIMER_FAILED CHIP_APPLICATION_ERROR(0x06)
+
+// The following are inline functions that set a specific
+// effect on the status LED.
+namespace LED::General
+{
+    void FactoryResetEffect();
+    void ThreadProvisioningEffect();
+    void BLEConnectionEffect();
+    void DefaultEffect();
+}
+
+namespace LED::Identify
+{
+    void BlinkEffect();
+    void BreatheEffect();
+    void OkayEffect();
+    void ChannelChangeEffect();
+    void DefaultEffect();
+}
 
 class AppTask
 {
@@ -53,6 +73,7 @@ public:
     // Identify cluster callbacks.
     static void OnIdentifyStart(Identify* identify);
     static void OnIdentifyStop(Identify* identify);
+    static void OnIdentifyTriggerEffect(Identify* identify);
 
 private:
     friend AppTask & GetAppTask(void);

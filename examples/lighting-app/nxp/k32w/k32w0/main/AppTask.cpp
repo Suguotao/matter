@@ -89,7 +89,8 @@ static Identify gIdentify = {
     chip::EndpointId{1},
     AppTask::OnIdentifyStart,
     AppTask::OnIdentifyStop,
-    EMBER_ZCL_IDENTIFY_IDENTIFY_TYPE_VISIBLE_LED
+    EMBER_ZCL_IDENTIFY_IDENTIFY_TYPE_VISIBLE_LED,
+    AppTask::OnIdentifyTriggerEffect
 };
 
 /* OTA related variables */
@@ -102,6 +103,56 @@ static OTAImageProcessorImpl gImageProcessor;
 
 constexpr uint16_t requestedOtaBlockSize = 1024;
 #endif
+
+
+inline void LED::General::FactoryResetEffect()
+{
+    sStatusLED.Set(false);
+    sLightLED.Set(false);
+    sStatusLED.Blink(500);
+    sLightLED.Blink(500);
+}
+
+inline void LED::General::ThreadProvisioningEffect()
+{
+    sStatusLED.Blink(950, 50);
+}
+
+inline void LED::General::BLEConnectionEffect()
+{
+    sStatusLED.Blink(100, 100);
+}
+
+inline void LED::General::DefaultEffect()
+{
+    sStatusLED.Blink(50, 950);
+}
+
+inline void LED::Identify::BlinkEffect()
+{
+    sStatusLED.Set(false);
+    sStatusLED.Blink(500);
+}
+
+inline void LED::Identify::BreatheEffect()
+{
+    LED::Identify::BlinkEffect();
+}
+
+inline void LED::Identify::OkayEffect()
+{
+    LED::Identify::BlinkEffect();
+}
+
+inline void LED::Identify::ChannelChangeEffect()
+{
+    LED::Identify::BlinkEffect();
+}
+
+inline void LED::Identify::DefaultEffect()
+{
+    LED::Identify::BlinkEffect();
+}
 
 CHIP_ERROR AppTask::StartAppTask()
 {
@@ -287,15 +338,15 @@ void AppTask::AppTaskMain(void * pvParameter)
         {
             if (sIsThreadProvisioned)
             {
-                sStatusLED.Blink(950, 50);
+                LED::General::ThreadProvisioningEffect();
             }
             else if (sHaveBLEConnections)
             {
-                sStatusLED.Blink(100, 100);
+                LED::General::BLEConnectionEffect();
             }
             else
             {
-                sStatusLED.Blink(50, 950);
+                LED::General::DefaultEffect();
             }
         }
 
@@ -452,11 +503,7 @@ void AppTask::ResetActionEventHandler(AppEvent * aEvent)
         sAppTask.mFunction = kFunction_FactoryReset;
 
         /* LEDs will start blinking to signal that a Factory Reset was scheduled */
-        sStatusLED.Set(false);
-        sLightLED.Set(false);
-
-        sStatusLED.Blink(500);
-        sLightLED.Blink(500);
+        LED::General::FactoryResetEffect();
 
         sAppTask.StartTimer(FACTORY_RESET_TRIGGER_TIMEOUT);
     }
@@ -698,26 +745,42 @@ void AppTask::ActionCompleted(LightingManager::Action_t aAction)
 
 void AppTask::OnIdentifyStart(Identify* identify)
 {
-    if (EMBER_ZCL_IDENTIFY_EFFECT_IDENTIFIER_BLINK == identify->mCurrentEffectIdentifier)
+    if (kFunction_NoneSelected != sAppTask.mFunction)
     {
-        if (kFunction_NoneSelected != sAppTask.mFunction)
-        {
-            K32W_LOG("Another function is scheduled. Could not initiate Identify process!");
-            return;
-        }
-        K32W_LOG("Identify process has started. Status LED should blink every 0.5 seconds.");
-        sAppTask.mFunction = kFunction_Identify;
-        sStatusLED.Set(false);
-        sStatusLED.Blink(500);
+        K32W_LOG("Another function is scheduled. Could not initiate Identify process!");
+        return;
     }
+    K32W_LOG("Identify process has started.");
+    sAppTask.mFunction = kFunction_Identify;
+    LED::Identify::DefaultEffect();
 }
 
 void AppTask::OnIdentifyStop(Identify* identify)
 {
-    if (EMBER_ZCL_IDENTIFY_EFFECT_IDENTIFIER_BLINK == identify->mCurrentEffectIdentifier)
+    K32W_LOG("Identify process has stopped.");
+    sAppTask.mFunction = kFunction_NoneSelected;
+}
+
+void AppTask::OnIdentifyTriggerEffect(Identify* identify)
+{
+    switch (identify->mCurrentEffectIdentifier)
     {
-        K32W_LOG("Identify process has stopped.");
-        sAppTask.mFunction = kFunction_NoneSelected;
+        case EMBER_ZCL_IDENTIFY_EFFECT_IDENTIFIER_BLINK:
+            LED::Identify::BlinkEffect(); break;
+        case EMBER_ZCL_IDENTIFY_EFFECT_IDENTIFIER_BREATHE:
+            LED::Identify::BreatheEffect(); break;
+        case EMBER_ZCL_IDENTIFY_EFFECT_IDENTIFIER_OKAY:
+            LED::Identify::OkayEffect(); break;
+        case EMBER_ZCL_IDENTIFY_EFFECT_IDENTIFIER_CHANNEL_CHANGE:
+            LED::Identify::ChannelChangeEffect(); break;
+        // The finish and stop effects are already implemented
+        // in identify-server. Only log a message.
+        case EMBER_ZCL_IDENTIFY_EFFECT_IDENTIFIER_FINISH_EFFECT:
+            K32W_LOG("Identify effect changed to FINISH."); break;
+        case EMBER_ZCL_IDENTIFY_EFFECT_IDENTIFIER_STOP_EFFECT:
+            K32W_LOG("Identify effect changed to STOP."); break;
+        default:
+            K32W_LOG("No effect."); break;
     }
 }
 
