@@ -325,7 +325,7 @@ void AppTask::ButtonEventHandler(uint8_t pin_no, uint8_t button_action)
     }
 
     AppEvent button_event;
-    button_event.Type               = AppEvent::Types::kButton;
+    button_event.Type               = AppEvent::kButton;
     button_event.ButtonEvent.PinNo  = pin_no;
     button_event.ButtonEvent.Action = button_action;
 
@@ -415,7 +415,7 @@ void AppTask::HandleKeyboard(void)
 void AppTask::TimerEventHandler(TimerHandle_t xTimer)
 {
     AppEvent event;
-    event.Type               = AppEvent::Types::kTimer;
+    event.Type               = AppEvent::kTimer;
     event.TimerEvent.Context = (void *) xTimer;
     event.Handler            = FunctionTimerEventHandler;
     sAppTask.PostEvent(&event);
@@ -425,7 +425,7 @@ void AppTask::FunctionTimerEventHandler(void * aGenericEvent)
 {
     AppEvent * aEvent = (AppEvent *) aGenericEvent;
 
-    if (aEvent->Type != AppEvent::Types::kTimer)
+    if (aEvent->Type != AppEvent::kTimer)
         return;
 
     K32W_LOG("Device will factory reset...");
@@ -499,11 +499,11 @@ void AppTask::ContactActionEventHandler(void * aGenericEvent)
         return;
     }
 
-    if (aEvent->Type == AppEvent::Types::kContact)
+    if (aEvent->Type == AppEvent::kContact)
     {
         action = static_cast<ContactSensorManager::Action>(aEvent->ContactEvent.Action);
     }
-    else if (aEvent->Type == AppEvent::Types::kButton)
+    else if (aEvent->Type == AppEvent::kButton)
     {
         if (ContactSensorMgr().IsContactClosed())
         {
@@ -554,7 +554,7 @@ void AppTask::StartOTAQuery(intptr_t arg)
 void AppTask::PostOTAResume()
 {
     AppEvent event;
-    event.Type    = AppEvent::Types::kOTAResume;
+    event.Type    = AppEvent::kOTAResume;
     event.Handler = OTAResumeEventHandler;
     sAppTask.PostEvent(&event);
 }
@@ -721,8 +721,10 @@ void AppTask::OnIdentifyStart(Identify* identify)
         }
         K32W_LOG("Identify process has started. Status LED should blink every 0.5 seconds.");
         sAppTask.mFunction = Function::kIdentify;
+#if !cPWR_UsePowerDownMode
         sStatusLED.Set(false);
         sStatusLED.Blink(500);
+#endif
     }
 }
 
@@ -738,7 +740,7 @@ void AppTask::OnIdentifyStop(Identify* identify)
 void AppTask::PostContactActionRequest(ContactSensorManager::Action aAction)
 {
     AppEvent event;
-    event.Type                = AppEvent::Types::kContact;
+    event.Type                = AppEvent::kContact;
     event.ContactEvent.Action = static_cast<uint8_t>(aAction);
     event.Handler             = ContactActionEventHandler;
     PostEvent(&event);
@@ -747,7 +749,7 @@ void AppTask::PostContactActionRequest(ContactSensorManager::Action aAction)
 void AppTask::OTAResumeEventHandler(void * aGenericEvent)
 {
     AppEvent * aEvent = (AppEvent *) aGenericEvent;
-    if (aEvent->Type == AppEvent::Types::kOTAResume)
+    if (aEvent->Type == AppEvent::kOTAResume)
     {
 #if CHIP_DEVICE_CONFIG_ENABLE_OTA_REQUESTOR
         if (gDownloader.GetState() == OTADownloader::State::kInProgress)
@@ -785,7 +787,7 @@ void AppTask::DispatchEvent(AppEvent * aEvent)
 {
 #if defined(cPWR_UsePowerDownMode) && (cPWR_UsePowerDownMode)
     /* specific processing for events sent from App_PostCallbackMessage (see main.cpp) */
-    if (aEvent->Type == AppEvent::Types::kLowPower)
+    if (aEvent->Type == AppEvent::kEventType_Lp)
     {
         aEvent->Handler(aEvent->param);
     }
