@@ -48,6 +48,7 @@ static_library("k32w0") {
     "NFCManagerImpl.cpp",
     "NFCManagerImpl.h",
     "PlatformManagerImpl.cpp",
+    "LowPowerHooks.cpp",
     "PlatformManagerImpl.h",
     "ble_function_mux.c",
   ]

@@ -49,7 +49,7 @@ bool ContactSensorManager::IsContactClosed()
 void ContactSensorManager::InitiateAction(Action aAction)
 {
     AppEvent event;
-    event.Type = AppEvent::Types::kContact;
+    event.Type = AppEvent::kContact;
     event.ContactEvent.Action = static_cast<uint8_t>(aAction);
     event.Handler = HandleAction;
     GetAppTask().PostEvent(&event);

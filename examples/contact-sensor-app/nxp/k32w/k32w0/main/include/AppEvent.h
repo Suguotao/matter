@@ -18,21 +18,24 @@
 
 #pragma once
 
+struct AppEvent;
 typedef void (*EventHandler)(void *);
 
 struct AppEvent
 {
-    enum class Types : uint8_t
+    enum AppEventTypes
     {
         kButton = 0,
         kTimer,
         kContact,
         kInstall,
 #if defined(cPWR_UsePowerDownMode) && (cPWR_UsePowerDownMode)
-        kLowPower,
+        kEventType_Lp,
 #endif
         kOTAResume,
     };
+
+    AppEventTypes Type;
 
     union
     {
@@ -51,7 +54,6 @@ struct AppEvent
         } ContactEvent;
     };
 
-    Types Type;
     EventHandler Handler;
 
 #if defined(cPWR_UsePowerDownMode) && (cPWR_UsePowerDownMode)
