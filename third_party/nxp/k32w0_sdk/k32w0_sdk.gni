@@ -246,7 +246,6 @@ template("k32w0_sdk") {
       "gSerialManagerMaxInterfaces_c=2",
       "FSL_RTOS_FREE_RTOS=1",
       "gTotalHeapSize_c=0x10000",
-      "gUartDebugConsole_d=1",
       "DEBUG_SERIAL_INTERFACE_INSTANCE=0",
       "APP_SERIAL_INTERFACE_INSTANCE=1",
       "gOTA_externalFlash_d=1",
@@ -262,7 +261,6 @@ template("k32w0_sdk") {
       "ENABLE_RAM_VECTOR_TABLE=1",
       "gTMR_Enabled_d=1",
       "gTimestamp_Enabled_d=0",
-      "K32W_LOG_ENABLED=1",
       "CHIP_ENABLE_OPENTHREAD=1",
       "gOtaMemPoolId_c=1",
       "PoolsDetails_c=_block_size_ 32 _number_of_blocks_ 6 _pool_id_(0) _eol_ _block_size_ 256 _number_of_blocks_ 3 _pool_id_(0) _eol_ _block_size_ 512 _number_of_blocks_ 2 _pool_id_(0) _eol_ _block_size_ 768 _number_of_blocks_ 1 _pool_id_(0) _eol_ _block_size_ 268  _number_of_blocks_ 8 _pool_id_(gOtaMemPoolId_c) _eol_",
@@ -346,11 +344,15 @@ template("k32w0_sdk") {
         "mAppUseTickLessMode_c=1",
         "App_SuppressTickInStopMode=0",
         "cPWR_DiscardRunningTimerForPowerDown=1",
+        "K32W_LOG_ENABLED=0",
+        "gUartDebugConsole_d=0",
       ]
     } else {
       defines += [
         "cPWR_UsePowerDownMode=0",
         "cPWR_FullPowerDownMode=0",
+        "K32W_LOG_ENABLED=1",
+        "gUartDebugConsole_d=1",
       ]
     }
 

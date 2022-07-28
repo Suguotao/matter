@@ -52,7 +52,6 @@ constexpr uint8_t kAppEventQueueSize           = 10;
 
 TimerHandle_t sFunctionTimer; // FreeRTOS app sw timer.
 
-static SemaphoreHandle_t sCHIPEventLock;
 static QueueHandle_t sAppEventQueue;
 
 #if !cPWR_UsePowerDownMode
@@ -141,13 +140,6 @@ CHIP_ERROR AppTask::Init()
     }
 
     BoltLockMgr().SetCallbacks(ActionInitiated, ActionCompleted);
-
-    sCHIPEventLock = xSemaphoreCreateMutex();
-    if (sCHIPEventLock == NULL)
-    {
-        K32W_LOG("xSemaphoreCreateMutex() failed");
-        assert(err == CHIP_NO_ERROR);
-    }
 
     // Print the current software version
     char currentSoftwareVer[ConfigurationManager::kMaxSoftwareVersionStringLength + 1] = { 0 };
