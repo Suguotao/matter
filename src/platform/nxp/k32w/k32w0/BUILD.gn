@@ -13,8 +13,10 @@
 # limitations under the License.
 
 import("//build_overrides/chip.gni")
+import("//build_overrides/k32w0_sdk.gni")
 
 import("${chip_root}/src/platform/device.gni")
+import("${k32w0_sdk_build_root}/k32w0_sdk.gni")
 
 assert(chip_device_platform == "k32w0")
 
@@ -48,10 +50,15 @@ static_library("k32w0") {
     "NFCManagerImpl.cpp",
     "NFCManagerImpl.h",
     "PlatformManagerImpl.cpp",
-    "LowPowerHooks.cpp",
     "PlatformManagerImpl.h",
     "ble_function_mux.c",
   ]
+
+  if (chip_with_low_power != 0) {
+    sources += [
+      "LowPowerHooks.cpp",
+    ]
+  }
 
   if (chip_enable_ota_requestor) {
     sources += [
