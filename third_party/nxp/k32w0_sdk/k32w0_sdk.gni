@@ -257,6 +257,8 @@ template("k32w0_sdk") {
       "HEAP_SIZE=gTotalHeapSize_c",
       "gLoggingActive_d=0",
       "gLogRingPlacementOffset_c=0xF000",
+      "K32W_LOG_ENABLED=1",
+      "gUartDebugConsole_d=1",
     ]
 
     if (chip_mdns == "platform") {
@@ -320,15 +322,11 @@ template("k32w0_sdk") {
         "mAppUseTickLessMode_c=1",
         "App_SuppressTickInStopMode=0",
         "cPWR_DiscardRunningTimerForPowerDown=1",
-        "K32W_LOG_ENABLED=0",
-        "gUartDebugConsole_d=0",
       ]
     } else {
       defines += [
         "cPWR_UsePowerDownMode=0",
         "cPWR_FullPowerDownMode=0",
-        "K32W_LOG_ENABLED=1",
-        "gUartDebugConsole_d=1",
       ]
     }
 

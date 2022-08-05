@@ -36,6 +36,10 @@
 #include "k32w0-chip-mbedtls-config.h"
 #include <AppTask.h>
 
+#include "app_config.h"
+#include "fsl_gpio.h"
+#include "fsl_iocon.h"
+
 using namespace ::chip;
 using namespace ::chip::Inet;
 using namespace ::chip::DeviceLayer;
@@ -156,6 +160,47 @@ static void dm_switch_wakeupCallBack(void)
     dm_lp_wakeup();
 }
 
+void vOptimizeConsumption(uint32_t u32PIOvalue, uint32_t u32SkipIO)
+{
+    uint8_t u8KeepFro32k, u8KeepIOclk, u8KeepXtal32M;
+
+    u8KeepFro32k                       = u32SkipIO >> 31;
+    u8KeepIOclk                        = (u32SkipIO >> 30) & 0x1;
+    u8KeepXtal32M                      = (u32SkipIO >> 29) & 0x1;
+    const gpio_pin_config_t pin_config = { .pinDirection = kGPIO_DigitalInput, .outputLogic = 1U };
+
+    if (u32PIOvalue != 0)
+    {
+        for (int i = 0; i < 22; i++)
+        {
+
+            if (((u32SkipIO >> i) & 0x1) != 1)
+            {
+                /* configure GPIOs to Input mode */
+                GPIO_PinInit(GPIO, 0, i, &pin_config);
+                IOCON_PinMuxSet(IOCON, 0, i, u32PIOvalue);
+            }
+        }
+    } 
+
+    if (u8KeepIOclk == 0)
+    {
+        CLOCK_DisableClock(kCLOCK_Iocon);
+        CLOCK_DisableClock(kCLOCK_InputMux);
+        CLOCK_DisableClock(kCLOCK_Gpio0);
+    }
+
+    if (u8KeepXtal32M == 0)
+    {
+        CLOCK_DisableClock(kCLOCK_Xtal32M); // Crystal 32MHz
+    }
+
+    // Keep the 32K clock
+    if (u8KeepFro32k == 0)
+    {
+        CLOCK_DisableClock(kCLOCK_Fro32k);
+    }
+}
 
 static void dm_switch_preSleepCallBack(void)
 {
@@ -177,6 +222,7 @@ static void dm_switch_preSleepCallBack(void)
 
     EEPROM_DeInit();
 
+    vOptimizeConsumption((IOCON_FUNC0 | (0x2 << 3) | IOCON_ANALOG_EN), (1 << 1));
     /* disable SHA clock */
     SHA_ClkDeinit(SHA_INSTANCE);
 
