@@ -58,54 +58,11 @@ void DispatchServerCommand(CommandHandler * apCommandObj, const ConcreteCommandP
         }
             break;
         }
-        case Commands::OpenBasicCommissioningWindow::Id: {
-        Commands::OpenBasicCommissioningWindow::DecodableType commandData;
-        TLVError = DataModel::Decode(aDataTlv, commandData);
-        if (TLVError == CHIP_NO_ERROR) {
-        wasHandled = emberAfAdministratorCommissioningClusterOpenBasicCommissioningWindowCallback(apCommandObj, aCommandPath, commandData);
-        }
-            break;
-        }
         case Commands::RevokeCommissioning::Id: {
         Commands::RevokeCommissioning::DecodableType commandData;
         TLVError = DataModel::Decode(aDataTlv, commandData);
         if (TLVError == CHIP_NO_ERROR) {
         wasHandled = emberAfAdministratorCommissioningClusterRevokeCommissioningCallback(apCommandObj, aCommandPath, commandData);
-        }
-            break;
-        }
-        default: {
-            // Unrecognized command ID, error status will apply.
-            apCommandObj->AddStatus(aCommandPath, Protocols::InteractionModel::Status::UnsupportedCommand);
-            ChipLogError(Zcl, "Unknown command " ChipLogFormatMEI " for cluster " ChipLogFormatMEI, ChipLogValueMEI(aCommandPath.mCommandId), ChipLogValueMEI(aCommandPath.mClusterId));
-            return;
-        }
-        }
-    }
-
-    if (CHIP_NO_ERROR != TLVError || !wasHandled)
-    {
-      apCommandObj->AddStatus(aCommandPath, Protocols::InteractionModel::Status::InvalidCommand);
-      ChipLogProgress(Zcl, "Failed to dispatch command, TLVError=%" CHIP_ERROR_FORMAT, TLVError.Format());
-    }
-}
-
-}
-
-namespace DiagnosticLogs {
-
-void DispatchServerCommand(CommandHandler * apCommandObj, const ConcreteCommandPath & aCommandPath, TLV::TLVReader & aDataTlv)
-{
-    CHIP_ERROR TLVError = CHIP_NO_ERROR;
-    bool wasHandled = false;
-    {
-        switch (aCommandPath.mCommandId)
-        {
-        case Commands::RetrieveLogsRequest::Id: {
-        Commands::RetrieveLogsRequest::DecodableType commandData;
-        TLVError = DataModel::Decode(aDataTlv, commandData);
-        if (TLVError == CHIP_NO_ERROR) {
-        wasHandled = emberAfDiagnosticLogsClusterRetrieveLogsRequestCallback(apCommandObj, aCommandPath, commandData);
         }
             break;
         }
@@ -364,6 +321,14 @@ void DispatchServerCommand(CommandHandler * apCommandObj, const ConcreteCommandP
         }
             break;
         }
+        case Commands::TriggerEffect::Id: {
+        Commands::TriggerEffect::DecodableType commandData;
+        TLVError = DataModel::Decode(aDataTlv, commandData);
+        if (TLVError == CHIP_NO_ERROR) {
+        wasHandled = emberAfIdentifyClusterTriggerEffectCallback(apCommandObj, aCommandPath, commandData);
+        }
+            break;
+        }
         default: {
             // Unrecognized command ID, error status will apply.
             apCommandObj->AddStatus(aCommandPath, Protocols::InteractionModel::Status::UnsupportedCommand);
@@ -487,14 +452,6 @@ void DispatchServerCommand(CommandHandler * apCommandObj, const ConcreteCommandP
         TLVError = DataModel::Decode(aDataTlv, commandData);
         if (TLVError == CHIP_NO_ERROR) {
         wasHandled = emberAfNetworkCommissioningClusterScanNetworksCallback(apCommandObj, aCommandPath, commandData);
-        }
-            break;
-        }
-        case Commands::AddOrUpdateWiFiNetwork::Id: {
-        Commands::AddOrUpdateWiFiNetwork::DecodableType commandData;
-        TLVError = DataModel::Decode(aDataTlv, commandData);
-        if (TLVError == CHIP_NO_ERROR) {
-        wasHandled = emberAfNetworkCommissioningClusterAddOrUpdateWiFiNetworkCallback(apCommandObj, aCommandPath, commandData);
         }
             break;
         }
@@ -830,9 +787,6 @@ void DispatchSingleClusterCommand(const ConcreteCommandPath & aCommandPath, TLV:
     {
     case Clusters::AdministratorCommissioning::Id:
         Clusters::AdministratorCommissioning::DispatchServerCommand(apCommandObj, aCommandPath, aReader);
-        break;
-    case Clusters::DiagnosticLogs::Id:
-        Clusters::DiagnosticLogs::DispatchServerCommand(apCommandObj, aCommandPath, aReader);
         break;
     case Clusters::GeneralCommissioning::Id:
         Clusters::GeneralCommissioning::DispatchServerCommand(apCommandObj, aCommandPath, aReader);
