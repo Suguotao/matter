@@ -246,6 +246,34 @@ static inline mbedtls_sha256_context * to_inner_hash_sha256_context(HashSHA256Op
     return SafePointerCast<mbedtls_sha256_context *>(context);
 }
 
+/**
+ * These functions aim to fix an issue when hardware SHA
+ * is used. Every SHA process should be finished before
+ * another SHA process is started. These two functions use
+ * context saving/reloading to simulate a full SHA process:
+ * Init -> Update -> Finish. They will wrap usual SHA operations
+ * such that hardware SHA is used correctly.
+ */
+#ifdef PLATFORM_USE_HW_SHA
+static void mbedtls_sha256_save_context(mbedtls_sha256_context* saved_context, 
+                                 mbedtls_sha256_context* context)
+{
+    mbedtls_sha256_init(saved_context);
+    mbedtls_sha256_clone(saved_context, context);
+}
+
+static int mbedtls_sha256_restore_context(mbedtls_sha256_context* saved_context, 
+                                    mbedtls_sha256_context* context)
+{
+    unsigned char output[32];
+    const int result = mbedtls_sha256_finish_ret(context, output);
+    mbedtls_sha256_clone(context, saved_context);
+    mbedtls_sha256_free(saved_context);
+
+    return result;
+}
+#endif
+
 Hash_SHA256_stream::Hash_SHA256_stream(void)
 {
     mbedtls_sha256_context * context = to_inner_hash_sha256_context(&mContext);
@@ -262,22 +290,40 @@ Hash_SHA256_stream::~Hash_SHA256_stream(void)
 CHIP_ERROR Hash_SHA256_stream::Begin(void)
 {
     mbedtls_sha256_context * const context = to_inner_hash_sha256_context(&mContext);
-
+#ifdef PLATFORM_USE_HW_SHA
+    mbedtls_sha256_context previous_ctx;
+    int result = mbedtls_sha256_starts_ret(context, 0);
+    VerifyOrReturnError(result == 0, CHIP_ERROR_INTERNAL);
+    mbedtls_sha256_save_context(&previous_ctx, context);
+    result = mbedtls_sha256_restore_context(&previous_ctx, context);
+#else
 #if (MBEDTLS_VERSION_NUMBER >= 0x03000000)
     const int result = mbedtls_sha256_starts(context, 0);
 #else
     const int result = mbedtls_sha256_starts_ret(context, 0);
 #endif
+#endif
 
     VerifyOrReturnError(result == 0, CHIP_ERROR_INTERNAL);
-
     return CHIP_NO_ERROR;
 }
 
 CHIP_ERROR Hash_SHA256_stream::AddData(const ByteSpan data)
 {
     mbedtls_sha256_context * const context = to_inner_hash_sha256_context(&mContext);
+#ifdef PLATFORM_USE_HW_SHA
+    mbedtls_sha256_context previous_ctx;
+    mbedtls_sha256_save_context(&previous_ctx, context);
+    mbedtls_sha256_starts_ret(context, 0);
+    mbedtls_sha256_clone(context, &previous_ctx);
 
+    int result = mbedtls_sha256_update_ret(context, Uint8::to_const_uchar(data.data()), data.size());
+    VerifyOrReturnError(result == 0, CHIP_ERROR_INTERNAL);
+
+    mbedtls_sha256_clone(&previous_ctx, context);
+    result = mbedtls_sha256_restore_context(&previous_ctx, context);
+    VerifyOrReturnError(result == 0, CHIP_ERROR_INTERNAL);
+#else
 #if (MBEDTLS_VERSION_NUMBER >= 0x03000000)
     const int result = mbedtls_sha256_update(context, Uint8::to_const_uchar(data.data()), data.size());
 #else
@@ -285,7 +331,7 @@ CHIP_ERROR Hash_SHA256_stream::AddData(const ByteSpan data)
 #endif
 
     VerifyOrReturnError(result == 0, CHIP_ERROR_INTERNAL);
-
+#endif
     return CHIP_NO_ERROR;
 }
 
@@ -312,6 +358,16 @@ CHIP_ERROR Hash_SHA256_stream::Finish(MutableByteSpan & out_buffer)
 {
     VerifyOrReturnError(out_buffer.size() >= kSHA256_Hash_Length, CHIP_ERROR_BUFFER_TOO_SMALL);
     mbedtls_sha256_context * const context = to_inner_hash_sha256_context(&mContext);
+
+#ifdef PLATFORM_USE_HW_SHA
+    mbedtls_sha256_context previous_ctx;
+    mbedtls_sha256_save_context(&previous_ctx, context);
+
+    mbedtls_sha256_starts_ret(context, 0);
+
+    mbedtls_sha256_clone(context, &previous_ctx);
+    mbedtls_sha256_free(&previous_ctx);
+#endif
 
 #if (MBEDTLS_VERSION_NUMBER >= 0x03000000)
     const int result = mbedtls_sha256_finish(context, Uint8::to_uchar(out_buffer.data()));
@@ -473,14 +529,20 @@ CHIP_ERROR add_entropy_source(entropy_source fn_source, void * p_source, size_t 
 
 CHIP_ERROR DRBG_get_bytes(uint8_t * out_buffer, const size_t out_length)
 {
+    size_t olen = 0;
+
     VerifyOrReturnError(out_buffer != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
     VerifyOrReturnError(out_length > 0, CHIP_ERROR_INVALID_ARGUMENT);
 
-    mbedtls_ctr_drbg_context * const drbg_ctxt = get_drbg_context();
-    VerifyOrReturnError(drbg_ctxt != nullptr, CHIP_ERROR_INTERNAL);
+    EntropyContext * const ctxt = get_entropy_context();
+    VerifyOrReturnError(ctxt != nullptr, CHIP_ERROR_INTERNAL);
 
-    const int result = mbedtls_ctr_drbg_random(drbg_ctxt, Uint8::to_uchar(out_buffer), out_length);
+    mbedtls_entropy_f_source_ptr trng_get_random = ctxt->mEntropy.source[0].f_source;
+    VerifyOrReturnError(trng_get_random != nullptr, CHIP_ERROR_INTERNAL);
+
+    const int result = trng_get_random(NULL, Uint8::to_uchar(out_buffer), out_length, &olen);
     VerifyOrReturnError(result == 0, CHIP_ERROR_INTERNAL);
+    VerifyOrReturnError(out_length == olen, CHIP_ERROR_INTERNAL);
 
     return CHIP_NO_ERROR;
 }

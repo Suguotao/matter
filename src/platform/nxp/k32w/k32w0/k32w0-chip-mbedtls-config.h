@@ -121,9 +121,10 @@
 #if defined(FSL_FEATURE_SOC_SHA_COUNT) && (FSL_FEATURE_SOC_SHA_COUNT > 0)
 #include "fsl_sha.h"
 
-#define SHA_INSTANCE SHA0          /* SHA base register.*/
-#define MBEDTLS_FREESCALE_LPC_SHA1 /* Enable use of LPC SHA.*/
-//#define MBEDTLS_FREESCALE_LPC_SHA256 /* Enable use of LPC SHA256.*/
+#define SHA_INSTANCE SHA0            /* SHA base register.*/
+#define MBEDTLS_FREESCALE_LPC_SHA1   /* Enable use of LPC SHA.*/
+#define MBEDTLS_FREESCALE_LPC_SHA256 /* Enable use of LPC SHA256.*/
+#define PLATFORM_USE_HW_SHA          /* Notify Matter of hardware SHA usage. */
 
 #endif
 
