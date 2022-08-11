@@ -37,6 +37,7 @@ declare_args() {
   board = "k32w061dk6"
   chip_with_ntag = 1
   chip_with_high_power = 0
+  chip_with_factory_data = 0
 }
 
 assert(k32w0_sdk_root != "", "k32w0_sdk_root must be specified")
@@ -355,6 +356,12 @@ template("k32w0_sdk") {
       defines += [
         "CONFIG_CHIP_NFC_COMMISSIONING=1",
         "CHIP_DEVICE_CONFIG_ENABLE_NFC=1",
+      ]
+    }
+
+    if (chip_with_factory_data == 1) {
+      defines += [
+        "CONFIG_CHIP_K32W0_REAL_FACTORY_DATA=1",
       ]
     }
 

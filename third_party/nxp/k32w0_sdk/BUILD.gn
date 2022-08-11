@@ -60,6 +60,13 @@ config("mbedtls_k32w0_config") {
     ]
   }
 
+  if (chip_with_factory_data == 1) {
+    defines += [
+      "MBEDTLS_X509_CRT_PARSE_C",
+      "MBEDTLS_X509_USE_C",
+    ]
+  }
+
   if (chip_crypto == "tinycrypt") {
     defines += [
       "MBEDTLS_USE_TINYCRYPT",

@@ -20,6 +20,7 @@ network.
     -   [Bluetooth LE Rendezvous](#bluetooth-le-rendezvous)
 -   [Device UI](#device-ui)
 -   [Building](#building)
+-   [Manufacturing data](#manufacturing)
 -   [Pigweed Tokenizer](#tokenizer)
     -   [Detokenizer script](#detokenizer)
     -   [Notes](#detokenizer-notes)
@@ -310,6 +311,86 @@ In order to use the tinycrypt ecc operations, use the following build arguments:
 
 To disable tinycrypt ecc operations, simply build with
 _chip_crypto=\"mbedtls\"_ and with or without _mbedtls_repo_. If used with _mbedtls_repo_ the mbedtls implementation from `NXPmicro/mbedtls` library will be used.
+
+<a name="manufacturing"></a>
+
+## Manufacturing data
+
+By default, the application is compiled with hard-coded certificates/crypto data embbeded inside the generic code.
+It is possible for the user to generate its own data:
+-   Generate new certificates
+
+    _PAI_VID_ and _PAI_PID_ variables must be changed accordingly inside generate_cert.sh script
+
+    _generate_cert.sh_ script needs as input parameter the path to chip-cert tool (compile it from ./src/tools/chip-cert). The output of the script is: the DAC, PAI and PAA certificates.
+    The DAC and PAI certificates will be written in a special section of the internal flash, while the PAA will be used on the chip-tool side as trust anchor.
+
+    ```
+    user@ubuntu:~/Desktop/git/connectedhomeip$ ./examples/platform/nxp/k32w/k32w0/scripts/generate_cert.sh  ./src/tools/chip-cert/out/chip-cert
+    ```
+
+
+-   Generate new crypto data and convert all the data to a binary:
+    ```
+    user@ubuntu:~/Desktop/git/connectedhomeip$  python3 ./scripts/tools/nxp/generate_nxp_chip_factory_bin.py -i 10000 -s ABCDEFGHIJKLMNOPQRSXYZ -p 14014 -d 1000 --dac_cert /home/ubuntu/manufacturing/Chip-DAC-NXP-Cert.der --dac_key /home/ubuntu/manufacturing/Chip-DAC-NXP-Key.der --pai_cert /home/ubuntu/manufacturing/Chip-PAI-NXP-Cert.der --spake2p_path ./src/tools/spake2p/out/spake2p --out out.bin
+    ```
+
+    Here is the interpretation of the parameters:
+    ```
+    -i             -> SPAKE2+ iteration
+    -s             -> SPAKE2+ salt
+    -p             -> SPAKE2+ passcode
+    - d            -> discriminator
+    --dac_cert     -> path to the DAC (der format) location
+    --dac_key      -> path to the DAC key (der format) location
+    --pai_cert     -> path to the PAI (der format) location
+    --spake2p_path -> path to the spake2p tool (compile it from ./src/tools/spake2p)
+    --out          -> name of the binary that will be used for storing all the generated data
+
+    ```
+
+-   Write out.bin to the internal flash at location 0x9D200:
+    ```
+    DK6Programmer.exe  -Y -V2 -s <COM_PORT> -P 1000000 -Y -p FLASH@0x9D200="out.bin"
+    ```
+
+-   Generate a new CD (certificate declaration):
+
+    Inside _gen-test-cds.sh_, the parameters _vids_, _pid0_, _device_type_id_ must be changed accordingly. Use _Chip-Test-CD-Signing-*_ key and certificate
+    already available in _./credentials/test/certification-declaration/_ which acts as CSA Certificate. This CSA certificate is also hard-coded as
+    Trust Anchor in the current chip-tool version. To use this certificate and avoid generating a new one, lines 69-70 must be commented in the _gen-test-cds.sh_ script
+    (the ones that are generating a new CD signing authority).
+    ```
+    user@ubuntu:~/Desktop/git/connectedhomeip$ ./credentials/test/gen-test-cds.sh ./src/tools/chip-cert/out/chip-cert
+    ```
+
+-   Set the correct VID/PID and CD in the examples/$APP_NAME/nxp/k32w/k32w0/ChipProjectConfig.h file
+    VID and PID values should correspond to the ones used for DAC. CD bytes should be the ones obtained at the step above:
+    ```
+    user@ubuntu:~/manufacturing hexdump -ve '1/1 "0x%.2x, "' Chip-Test-CD-1037-A220.der
+    ```
+
+-   Use _chip_with_factory_data=1_ gn compilation argument
+
+    This is needed in order to load the data from the special flash section. Build and flash the application.
+
+-   Run chip-tool with a new PAA:
+    ```
+    ./chip-tool pairing ble-thread 2 hex: $hex_value 14014 1000 --paa-trust-store-path /home/ubuntu/certs/paa
+    ```
+    Here is the interpretation of the parameters:
+    ```
+    --paa-trust-store-path -> path to the generated PAA (der format)
+    ```
+
+    _paa-trust-store-path_ must contain only the PAA certificate. Avoid placing other certificates in the same location as this may confuse chip-tool.
+
+-   Useful information/Known issues
+
+    Generated the certificates using openssl 1.1.11 - this is the openssl version used currently on the rpi official image. We recommend using this version.
+
+    Also, demo DAC, PAI and PAA certificates needed in case _chip_with_factory_data=1_ is used can be found in examples/platform/nxp/k32w/k32w0/scripts/demo_generated_certs.
+    These demo certificates are working with the CD installed in CHIPProjectConfig.h.
 
 <a name="flashdebug"></a>
 

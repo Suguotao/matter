@@ -130,19 +130,29 @@ CHIP_ERROR AppTask::Init()
     // Init ZCL Data Model and start server
     PlatformMgr().ScheduleWork(InitServer, 0);
 
-    // Initialize device attestation config
+// Initialize device attestation config
+#if CONFIG_CHIP_K32W0_REAL_FACTORY_DATA
+    // Initialize factory data provider
+	ReturnErrorOnFailure(mK32W0FactoryDataProvider.Init());
+#if CHIP_DEVICE_CONFIG_ENABLE_DEVICE_INSTANCE_INFO_PROVIDER
+	SetDeviceInstanceInfoProvider(&mK32W0FactoryDataProvider);
+#endif
+	SetDeviceAttestationCredentialsProvider(&mK32W0FactoryDataProvider);
+	SetCommissionableDataProvider(&mK32W0FactoryDataProvider);
+#else
 #ifdef ENABLE_HSM_DEVICE_ATTESTATION
     SetDeviceAttestationCredentialsProvider(Examples::GetExampleSe05xDACProvider());
 #else
     SetDeviceAttestationCredentialsProvider(Examples::GetExampleDACProvider());
 #endif
 
+    // QR code will be used with CHIP Tool
+    PrintOnboardingCodes(chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE));
+#endif
+
 #if CHIP_DEVICE_CONFIG_ENABLE_OTA_REQUESTOR
     PlatformMgr().ScheduleWork(InitOTA, 0);
 #endif
-
-    // QR code will be used with CHIP Tool
-    PrintOnboardingCodes(chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE));
 
     /* HW init leds */
 #if !cPWR_UsePowerDownMode

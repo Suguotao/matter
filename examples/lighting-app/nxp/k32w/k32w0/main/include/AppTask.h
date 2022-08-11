@@ -23,6 +23,7 @@
 
 #include "AppEvent.h"
 #include "LightingManager.h"
+#include "K32W0FactoryDataProvider.h"
 
 #include <platform/CHIPDeviceLayer.h>
 #include <app/clusters/identify-server/identify-server.h>
@@ -109,6 +110,8 @@ private:
     bool mSyncClusterToButtonAction = false;
 
     static AppTask sAppTask;
+
+    chip::DeviceLayer::K32W0FactoryDataProvider mK32W0FactoryDataProvider;
 };
 
 inline AppTask & GetAppTask(void)

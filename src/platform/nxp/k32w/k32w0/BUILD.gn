@@ -44,6 +44,8 @@ static_library("k32w0") {
     "DiagnosticDataProviderImpl.h",
     "K32W0Config.cpp",
     "K32W0Config.h",
+    "K32W0FactoryDataProvider.cpp",
+    "K32W0FactoryDataProvider.h",
     "KeyValueStoreManagerImpl.cpp",
     "KeyValueStoreManagerImpl.h",
     "Logging.cpp",
