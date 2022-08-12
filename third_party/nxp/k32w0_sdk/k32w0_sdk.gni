@@ -295,7 +295,7 @@ template("k32w0_sdk") {
       } else {
         defines += [
           "gKeyBoardSupported_d=1",
-          "gKBD_KeysCount_c=1",
+          "gKBD_KeysCount_c=2",
         ]
       }
 

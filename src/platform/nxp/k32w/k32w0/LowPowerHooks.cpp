@@ -39,6 +39,7 @@
 #include "app_config.h"
 #include "fsl_gpio.h"
 #include "fsl_iocon.h"
+#include "gpio_pins.h"
 
 using namespace ::chip;
 using namespace ::chip::Inet;
@@ -221,8 +222,9 @@ static void dm_switch_preSleepCallBack(void)
     dm_lp_preSleep();
 
     EEPROM_DeInit();
-
-    vOptimizeConsumption((IOCON_FUNC0 | (0x2 << 3) | IOCON_ANALOG_EN), (1 << 1));
+    /* BUTTON2 change contact, BUTTON4 start adv/factoryreset */
+    vOptimizeConsumption((IOCON_FUNC0 | (0x2 << 3) | IOCON_ANALOG_EN), \
+                               (1 << IOCON_USER_BUTTON1_PIN) | (1 << IOCON_USER_BUTTON2_PIN));
     /* disable SHA clock */
     SHA_ClkDeinit(SHA_INSTANCE);
 

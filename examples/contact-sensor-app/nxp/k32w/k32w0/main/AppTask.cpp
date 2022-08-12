@@ -121,6 +121,12 @@ CHIP_ERROR AppTask::Init()
 {
     CHIP_ERROR err = CHIP_NO_ERROR;
 
+    if (ContactSensorMgr().Init() != 0)
+    {
+        K32W_LOG("ContactSensorMgr().Init() failed");
+        assert(status == 0);
+    }
+
     // Init ZCL Data Model and start server
     PlatformMgr().ScheduleWork(InitServer, 0);
 
@@ -167,14 +173,7 @@ CHIP_ERROR AppTask::Init()
         assert(err == CHIP_NO_ERROR);
     }
 
-    if (ContactSensorMgr().Init() != 0)
-    {
-        K32W_LOG("ContactSensorMgr().Init() failed");
-        assert(status == 0);
-    }
-
     ContactSensorMgr().SetCallback(OnStateChanged);
-
 
     // Print the current software version
     char currentSoftwareVer[ConfigurationManager::kMaxSoftwareVersionStringLength + 1] = { 0 };
