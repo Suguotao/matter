@@ -38,6 +38,8 @@ class K32W0FactoryDataProvider : public CommissionableDataProvider,
 #endif // CHIP_DEVICE_CONFIG_ENABLE_DEVICE_INSTANCE_INFO_PROVIDER
 {
 public:
+	static K32W0FactoryDataProvider & GetDefaultInstance();
+
 	K32W0FactoryDataProvider()
 	{ }
 

@@ -48,6 +48,12 @@ CHIP_ERROR LoadKeypairFromRaw(ByteSpan privateKey, ByteSpan publicKey, Crypto::P
 
 namespace DeviceLayer {
 
+K32W0FactoryDataProvider & K32W0FactoryDataProvider::GetDefaultInstance()
+{
+    static K32W0FactoryDataProvider sInstance;
+    return sInstance;
+}
+
 constexpr size_t kVerifierId = 1;
 constexpr size_t kSaltId = 2;
 constexpr size_t kIcId = 3;

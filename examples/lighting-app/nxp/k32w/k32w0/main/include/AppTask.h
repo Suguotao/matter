@@ -110,8 +110,6 @@ private:
     bool mSyncClusterToButtonAction = false;
 
     static AppTask sAppTask;
-
-    chip::DeviceLayer::K32W0FactoryDataProvider mK32W0FactoryDataProvider;
 };
 
 inline AppTask & GetAppTask(void)
