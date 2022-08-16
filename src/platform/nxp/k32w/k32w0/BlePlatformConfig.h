@@ -31,6 +31,8 @@
 #define BLE_CONNECTION_OBJECT uint8_t
 #define BLE_CONNECTION_UNINITIALIZED ((uint8_t) 0xFF)
 
+#define CHIP_DEVICE_CONFIG_BLE_DEVICE_NAME_PREFIX "MA-"
+
 // ========== Platform-specific Configuration Overrides =========
 
 /* none so far */

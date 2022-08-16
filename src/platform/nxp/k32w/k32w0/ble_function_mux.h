@@ -31,4 +31,7 @@ typedef enum
     kBleFuncMux_AppMode_Ota
 } ble_func_mux_app_mode_t;
 
+
+#define pdmId_BondEntry0       0x4011U
+
 #endif

@@ -45,6 +45,10 @@
 #include "PWR_Configuration.h"
 #endif
 
+#include "app_config.h"
+#include "fsl_debug_console.h"
+
+#define APP_DEBUG_TRACE  PRINTF
 /*******************************************************************************
  * Local data types
  *******************************************************************************/
@@ -107,7 +111,7 @@ namespace {
 
 /* advertising configuration */
 #define BLEKW_ADV_MAX_NO (2)
-#define BLEKW_SCAN_RSP_MAX_NO (2)
+#define BLEKW_SCAN_RSP_MAX_NO (3)
 #define BLEKW_MAX_ADV_DATA_LEN (31)
 #define CHIP_ADV_SHORT_UUID_LEN (2)
 
@@ -138,6 +142,7 @@ const ChipBleUUID ChipUUID_CHIPoBLEChar_TX = { { 0x18, 0xEE, 0x2E, 0xF5, 0x26, 0
 #if defined(cPWR_UsePowerDownMode) && (cPWR_UsePowerDownMode)
 static bool bleAppStopInProgress;
 #endif
+static bool_t bEnableBLEOTAFlag = false;
 } // namespace
 
 BLEManagerImpl BLEManagerImpl::sInstance;
@@ -148,6 +153,26 @@ CHIP_ERROR BLEManagerImpl::_Init()
     osaEventFlags_t flags;
     BaseType_t bleAppCreated    = errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY;
     uint16_t attChipRxHandle[1] = { (uint16_t) value_chipoble_rx };
+
+    PDM_teStatus pdmStatus;
+    uint16_t bytesRead;
+    APP_DEBUG_TRACE("check PDM_ID_BLE_OTA_FLAG exist\n");
+    if (PDM_bDoesDataExist(PDM_ID_BLE_OTA_FLAG, &bytesRead))
+    {
+        pdmStatus = PDM_eReadDataFromRecord(PDM_ID_BLE_OTA_FLAG, &bEnableBLEOTAFlag, sizeof(bool_t), &bytesRead);
+        if(pdmStatus == PDM_E_STATUS_OK)
+        {
+            APP_DEBUG_TRACE("read PDM_ID_BLE_OTA_FLAG success, %d\n", bEnableBLEOTAFlag);
+        }
+        else
+        {
+            APP_DEBUG_TRACE("read PDM_ID_BLE_OTA_FLAG failure\n");
+        }
+    }
+    if(bEnableBLEOTAFlag == true)
+        ChipLogProgress(DeviceLayer,"\nIT CAN DO BLE OTA WITH IOT_TOOLBOX\n\n");
+    else if(bEnableBLEOTAFlag == false)
+        ChipLogProgress(DeviceLayer,"\nIT CAN DO MATTER COMMISSIONING WITH CHIP-TOOL\n\n");
 
     mServiceMode = ConnectivityManager::kCHIPoBLEServiceMode_Enabled;
 
@@ -311,6 +336,7 @@ BLEManagerImpl::CHIPoBLEConState * BLEManagerImpl::GetConnectionState(uint8_t co
 
 CHIP_ERROR BLEManagerImpl::_SetAdvertisingEnabled(bool val)
 {
+    APP_DEBUG_TRACE("%s, val:%d\r\n", __FUNCTION__, val);
     CHIP_ERROR err = CHIP_NO_ERROR;
 
     VerifyOrExit(mServiceMode != ConnectivityManager::kCHIPoBLEServiceMode_NotSupported, err = CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE);
@@ -327,6 +353,7 @@ exit:
 
 CHIP_ERROR BLEManagerImpl::_SetAdvertisingMode(BLEAdvertisingMode mode)
 {
+    APP_DEBUG_TRACE("%s, mode:%d\r\n", __FUNCTION__, mode);
     switch (mode)
     {
     case BLEAdvertisingMode::kFastAdvertising:
@@ -345,6 +372,10 @@ CHIP_ERROR BLEManagerImpl::_SetAdvertisingMode(BLEAdvertisingMode mode)
 
 CHIP_ERROR BLEManagerImpl::_GetDeviceName(char * buf, size_t bufSize)
 {
+    APP_DEBUG_TRACE("%s, bufSize:%d\r\n", __FUNCTION__, bufSize);
+    for(uint8_t i = 0; i < bufSize; i++)
+        APP_DEBUG_TRACE("%c", *(buf+i));
+    APP_DEBUG_TRACE("\r\n");
     if (strlen(mDeviceName) >= bufSize)
     {
         return CHIP_ERROR_BUFFER_TOO_SMALL;
@@ -355,6 +386,7 @@ CHIP_ERROR BLEManagerImpl::_GetDeviceName(char * buf, size_t bufSize)
 
 CHIP_ERROR BLEManagerImpl::_SetDeviceName(const char * deviceName)
 {
+    APP_DEBUG_TRACE("%s, name:%s\r\n", __FUNCTION__, deviceName);
     if (mServiceMode == ConnectivityManager::kCHIPoBLEServiceMode_NotSupported)
     {
         return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
@@ -381,6 +413,7 @@ CHIP_ERROR BLEManagerImpl::_SetDeviceName(const char * deviceName)
 
 void BLEManagerImpl::_OnPlatformEvent(const ChipDeviceEvent * event)
 {
+    APP_DEBUG_TRACE("%s, eventtype:%x\r\n", __FUNCTION__, event->Type);
     switch (event->Type)
     {
     case DeviceEventType::kCHIPoBLESubscribe:
@@ -832,6 +865,11 @@ CHIP_ERROR BLEManagerImpl::ConfigureAdvertisingData(void)
     chipOverBleService[1]   = ShortUUID_CHIPoBLEService[1];
     scan_rsp_data[1].aData  = (uint8_t *) chipOverBleService;
 
+    static uint8_t adData1[] = { 0xE0, 0x1C, 0x4B, 0x5E, 0x1E, 0xEB, 0xA1, 0x5C, 0xEE, 0xF4, 0x5E, 0xBA, 0x50, 0x55, 0xFF, 0x01};
+    scan_rsp_data[2].length = 17; //static_cast<uint8_t>(sizeof(adData1) + 1);
+    scan_rsp_data[2].adType = gAdComplete128bitServiceList_c;
+    scan_rsp_data[2].aData = adData1;
+
     scanRsp.aAdStructures = scan_rsp_data;
 
     /**************** Prepare advertising parameters *************************************/
@@ -928,6 +966,7 @@ CHIP_ERROR BLEManagerImpl::StopAdvertising(void)
 void BLEManagerImpl::DriveBLEState(void)
 {
     CHIP_ERROR err = CHIP_NO_ERROR;
+    APP_DEBUG_TRACE("%s\r\n", __FUNCTION__);
 
     // Check if BLE stack is initialized
     VerifyOrExit(mFlags.Has(Flags::kK32WBLEStackInitialized), /* */);
@@ -945,6 +984,7 @@ void BLEManagerImpl::DriveBLEState(void)
     {
         // Start/re-start advertising if not already started, or if there is a pending change
         // to the advertising configuration.
+        APP_DEBUG_TRACE("Advertising:%d RestartAdvertising:%d\r\n", mFlags.Has(Flags::kAdvertising), mFlags.Has(Flags::kRestartAdvertising));
         if (!mFlags.Has(Flags::kAdvertising) || mFlags.Has(Flags::kRestartAdvertising))
         {
             err = StartAdvertising();
@@ -969,6 +1009,7 @@ exit:
 
 void BLEManagerImpl::DriveBLEState(intptr_t arg)
 {
+    APP_DEBUG_TRACE("%s with arg\r\n", __FUNCTION__);
     sInstance.DriveBLEState();
 }
 
@@ -990,6 +1031,7 @@ void BLEManagerImpl::bleAppTask(void * p_arg)
 
             assert(msg != NULL);
 
+            APP_DEBUG_TRACE("bleAppTask type=%d\r\n", msg->type);
             if (msg->type == BLE_KW_MSG_ERROR)
             {
                 ChipLogProgress(DeviceLayer, "BLE Error: %d.\n", msg->data.u8);
@@ -1188,6 +1230,7 @@ exit:
  *******************************************************************************/
 void BLEManagerImpl::blekw_generic_cb(gapGenericEvent_t * pGenericEvent)
 {
+    APP_DEBUG_TRACE("BleApp_GenericCallback pGenericEvent=0x%x type=%d\r\n", pGenericEvent, pGenericEvent->eventType);
     /* Call BLE Conn Manager */
     BleConnManager_GenericEvent(pGenericEvent);
 
@@ -1235,6 +1278,7 @@ void BLEManagerImpl::blekw_generic_cb(gapGenericEvent_t * pGenericEvent)
 
 void BLEManagerImpl::blekw_gap_advertising_cb(gapAdvertisingEvent_t * pAdvertisingEvent)
 {
+    APP_DEBUG_TRACE("%s pAdvertisingEvent=0x%x\r\n", __FUNCTION__, pAdvertisingEvent->eventType);
     if (pAdvertisingEvent->eventType == gAdvertisingStateChanged_c)
     {
         /* Set the local synchronization event */
@@ -1322,6 +1366,8 @@ void BLEManagerImpl::blekw_stop_connection_timeout(void)
 
 void BLEManagerImpl::blekw_gatt_server_cb(deviceId_t deviceId, gattServerEvent_t * pServerEvent)
 {
+    APP_DEBUG_TRACE("%s event=0x%x\r\n", __FUNCTION__, pServerEvent->eventType);
+    
     switch (pServerEvent->eventType)
     {
     case gEvtMtuChanged_c: {

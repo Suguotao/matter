@@ -375,6 +375,9 @@ void AppTask::HandleKeyboard(void)
 {
     uint8_t keyEvent = 0xFF;
     uint8_t pos      = 0;
+    PDM_teStatus eStatus;
+    uint16_t bytesRead;
+    bool_t bEnableBLEOTAFlag = false;
 
     while (eventMask)
     {
@@ -415,6 +418,36 @@ void AppTask::HandleKeyboard(void)
             ButtonEventHandler(BLE_BUTTON, RESET_BUTTON_PUSH);
             break;
 #endif
+        case gKBD_EventLongPB2_c:
+            K32W_LOG("long press button 2 will flip the flag!");
+            if (PDM_bDoesDataExist(PDM_ID_BLE_OTA_FLAG, &bytesRead))
+            {
+                eStatus = PDM_eReadDataFromRecord(PDM_ID_BLE_OTA_FLAG, &bEnableBLEOTAFlag, sizeof(bool_t), &bytesRead);
+                if(eStatus == PDM_E_STATUS_OK)
+                {
+                    bEnableBLEOTAFlag = !bEnableBLEOTAFlag;
+                }
+            }
+            else
+            {
+                bEnableBLEOTAFlag = !bEnableBLEOTAFlag;
+            }
+            
+            eStatus = PDM_eSaveRecordData(PDM_ID_BLE_OTA_FLAG, (void*)&bEnableBLEOTAFlag, sizeof(bool));
+            K32W_LOG("save PDM_ID_BLE_OTA_FLAG bFlag:%d status:%d\n", bEnableBLEOTAFlag, eStatus);
+
+            /* LEDs will start blinking to signal that a Factory Reset was scheduled */
+        #if !cPWR_UsePowerDownMode
+            sStatusLED.Set(false);
+            sContactSensorLED.set(false);
+            
+            sStatusLED.Blink(100);
+            sContactSensorLED.Blink(100);
+        #endif
+
+            // Actually trigger Factory Reset
+            sAppTask.StartTimer(1000);
+            break;
         default:
             break;
         }
