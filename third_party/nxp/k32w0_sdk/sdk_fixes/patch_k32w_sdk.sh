@@ -16,10 +16,8 @@ SOURCE=${BASH_SOURCE[0]}
 SOURCE_DIR=$(cd "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)
 
 convert_to_dos "$NXP_K32W0_SDK_ROOT"/middleware/wireless/framework/OSAbstraction/Source/fsl_os_abstraction_free_rtos.c
-convert_to_dos "$NXP_K32W0_SDK_ROOT"/middleware/mbedtls/port/ksdk/ksdk_mbedtls.c
 
 patch -N --binary -d "$NXP_K32W0_SDK_ROOT"/middleware/wireless/framework/OSAbstraction/Source/ -p1 <"$SOURCE_DIR/fsl_os_abstraction_free_rtos_c.patch"
-patch -N --binary -d "$NXP_K32W0_SDK_ROOT"/middleware/mbedtls/port/ksdk/ -p1 <"$SOURCE_DIR/ksdk_mbedtls_c.patch"
 
 echo "K32W SDK 2.6.6 was patched!"
 exit 0
