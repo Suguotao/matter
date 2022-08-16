@@ -54,6 +54,8 @@ public:
     // Identify cluster callbacks.
     static void OnIdentifyStart(Identify* identify);
     static void OnIdentifyStop(Identify* identify);
+    static void OnTriggerEffect(Identify* identify);
+    static void OnTriggerEffectComplete(chip::System::Layer * systemLayer, void * appState);
 
 private:
     friend AppTask & GetAppTask(void);
@@ -84,6 +86,8 @@ private:
     static void ThreadProvisioningHandler(const chip::DeviceLayer::ChipDeviceEvent * event, intptr_t arg);
     void StartTimer(uint32_t aTimeoutInMs);
 
+    static void RestoreLightingState(void);
+
 #if CHIP_DEVICE_CONFIG_ENABLE_OTA_REQUESTOR
     static void InitOTA(intptr_t arg);
     static void StartOTAQuery(intptr_t arg);
@@ -101,6 +105,7 @@ private:
         kFunction_FactoryReset,
         kFunctionTurnOnTurnOff,
         kFunction_Identify,
+		kFunction_TriggerEffect,
 
         kFunction_Invalid
     } Function;
