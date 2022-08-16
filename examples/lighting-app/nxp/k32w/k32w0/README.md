@@ -304,7 +304,7 @@ It is possible for the user to generate its own data:
 
 -   Useful information/Known issues
 
-    Generated the certificates using openssl 1.1.11 - this is the openssl version used currently on the rpi official image. We recommend using this version.
+    Generated the certificates using openssl 1.1.1l - this is the openssl version used currently on the rpi official image. We recommend using this version.
 
     Also, demo DAC, PAI and PAA certificates needed in case _chip_with_factory_data=1_ is used can be found in examples/platform/nxp/k32w/k32w0/scripts/demo_generated_certs.
     These demo certificates are working with the CD installed in CHIPProjectConfig.h.

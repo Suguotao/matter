@@ -78,10 +78,10 @@ echo "Generate certificates"
 echo "Convert certificates and keys to DER format"
 
 # PAI
-"$CHIP_CERT_TOOL" convert-cert -x "$PAI_CERT" "$PAI_CERT_DER" && echo "Converted PAI" || exit_err "Failed to convert PAI"
+"$CHIP_CERT_TOOL" convert-cert -d "$PAI_CERT" "$PAI_CERT_DER" && echo "Converted PAI" || exit_err "Failed to convert PAI"
 
 # DAC Cer
-"$CHIP_CERT_TOOL" convert-cert -x "$DAC_CERT" "$DAC_CERT_DER" && echo "Converted DAC Cert" || exit_err "Failed to convert DAC Cert"
+"$CHIP_CERT_TOOL" convert-cert -d "$DAC_CERT" "$DAC_CERT_DER" && echo "Converted DAC Cert" || exit_err "Failed to convert DAC Cert"
 
 # DAC Key
-"$CHIP_CERT_TOOL" convert-key -x "$DAC_KEY" "$DAC_KEY_DER" && echo "Converted DAC Key" || exit_err "Failed to convert DAC Key"
+"$CHIP_CERT_TOOL" convert-key -d "$DAC_KEY" "$DAC_KEY_DER" && echo "Converted DAC Key" || exit_err "Failed to convert DAC Key"
