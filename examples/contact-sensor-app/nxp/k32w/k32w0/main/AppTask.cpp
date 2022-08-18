@@ -439,7 +439,7 @@ void AppTask::HandleKeyboard(void)
             /* LEDs will start blinking to signal that a Factory Reset was scheduled */
         #if !cPWR_UsePowerDownMode
             sStatusLED.Set(false);
-            sContactSensorLED.set(false);
+            sContactSensorLED.Set(false);
             
             sStatusLED.Blink(100);
             sContactSensorLED.Blink(100);

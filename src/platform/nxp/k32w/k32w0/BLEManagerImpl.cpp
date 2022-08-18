@@ -45,7 +45,11 @@
 #include "PWR_Configuration.h"
 #endif
 
+#include "device_info_interface.h"
+#include "otap_client.h"
+#include "otap_interface.h"
 #include "app_config.h"
+#include "OtaSupport.h"
 #include "fsl_debug_console.h"
 
 #define APP_DEBUG_TRACE  PRINTF
@@ -142,6 +146,8 @@ const ChipBleUUID ChipUUID_CHIPoBLEChar_TX = { { 0x18, 0xEE, 0x2E, 0xF5, 0x26, 0
 #if defined(cPWR_UsePowerDownMode) && (cPWR_UsePowerDownMode)
 static bool bleAppStopInProgress;
 #endif
+
+static disConfig_t disServiceConfig = {(uint16_t)service_device_info};
 static bool_t bEnableBLEOTAFlag = false;
 } // namespace
 
@@ -1032,37 +1038,71 @@ void BLEManagerImpl::bleAppTask(void * p_arg)
             assert(msg != NULL);
 
             APP_DEBUG_TRACE("bleAppTask type=%d\r\n", msg->type);
-            if (msg->type == BLE_KW_MSG_ERROR)
+            switch (msg->type)
             {
-                ChipLogProgress(DeviceLayer, "BLE Error: %d.\n", msg->data.u8);
-            }
-            else if (msg->type == BLE_KW_MSG_CONNECTED)
-            {
-                sInstance.HandleConnectEvent(msg);
-            }
-            else if (msg->type == BLE_KW_MSG_DISCONNECTED)
-            {
-                sInstance.HandleConnectionCloseEvent(msg);
-            }
-            else if (msg->type == BLE_KW_MSG_MTU_CHANGED)
-            {
-                blekw_start_connection_timeout();
-                ChipLogProgress(DeviceLayer, "BLE MTU size has been changed to %d.", msg->data.u16);
-            }
-            else if (msg->type == BLE_KW_MSG_ATT_WRITTEN || msg->type == BLE_KW_MSG_ATT_LONG_WRITTEN ||
-                     msg->type == BLE_KW_MSG_ATT_CCCD_WRITTEN)
-            {
-                sInstance.HandleWriteEvent(msg);
-            }
-            else if (msg->type == BLE_KW_MSG_FORCE_DISCONNECT)
-            {
-                ChipLogProgress(DeviceLayer, "BLE connection timeout: Forcing disconnection.");
+                case BLE_KW_MSG_ERROR:
+                    ChipLogProgress(DeviceLayer, "BLE Fatal Error: %d.\n", msg->data.u8);
 
-                /* Set the advertising parameters */
-                if (Gap_Disconnect(g_device_id) != gBleSuccess_c)
-                {
-                    ChipLogProgress(DeviceLayer, "Gap_Disconnect() failed.");
-                }
+                break;
+
+                case BLE_KW_MSG_CONNECTED:
+                    sInstance.HandleConnectEvent(msg);
+
+                break;
+
+                case BLE_KW_MSG_DISCONNECTED:
+                    sInstance.HandleConnectionCloseEvent(msg);
+
+                break;
+
+                case BLE_KW_MSG_MTU_CHANGED:
+                    blekw_start_connection_timeout();
+                    
+                    if(bEnableBLEOTAFlag)
+                    {
+                        sInstance.HandleOtapClientMtuChanged(msg);
+                    }
+                break;
+
+                case BLE_KW_MSG_ATT_WRITTEN:
+                case BLE_KW_MSG_ATT_LONG_WRITTEN:
+                case BLE_KW_MSG_ATT_CCCD_WRITTEN:
+                    sInstance.HandleWriteEvent(msg);
+
+                break;
+
+                case BLE_KW_MSG_ATT_WRITTEN_WITHOUT_RSP:
+                    if(bEnableBLEOTAFlag)
+                    {
+                        blekw_start_connection_timeout();
+                        sInstance.HandleOtapClientWriteWithoutRsp(msg);
+                    }
+                    
+                break;
+
+                case BLE_KW_MSG_VALUE_CONFIRMATION:
+                    if(bEnableBLEOTAFlag)
+                    {
+                        blekw_start_connection_timeout();
+                        APP_DEBUG_TRACE("otap confrim!!!!!!!!!!!\n");
+                        sInstance.HandleOtapClientValueConfirmation(msg);
+                    }
+                    
+                break;
+
+                case BLE_KW_MSG_FORCE_DISCONNECT:
+                    ChipLogProgress(DeviceLayer, "BLE connection timeout: Forcing disconnection.");
+
+                    /* Set the advertising parameters */
+                    if (Gap_Disconnect(g_device_id) != gBleSuccess_c)
+                    {
+                        ChipLogProgress(DeviceLayer, "Gap_Disconnect() failed.");
+                    }
+                    
+                break;
+
+                default:
+                    break;
             }
 
             /* Freed the message from the queue */
@@ -1081,7 +1121,22 @@ void BLEManagerImpl::HandleConnectEvent(blekw_msg_t * msg)
     blekw_start_connection_timeout();
     sInstance.AddConnection(device_id_loc);
     mFlags.Set(Flags::kRestartAdvertising);
+	if(bEnableBLEOTAFlag)
+    {
+        mFlags.Clear(Flags::kRestartAdvertising);
+        mFlags.Clear(Flags::kAdvertising);
+        mFlags.Clear(Flags::kAdvertisingEnabled);
+        CancelBleAdvTimeoutTimer();
+        APP_DEBUG_TRACE("close ble advertising!!!!!!!!!!!!!!!!!!\r\n");
+    }
     PlatformMgr().ScheduleWork(DriveBLEState, 0);
+    
+    if(bEnableBLEOTAFlag)
+    {
+        (void)OtapCS_Subscribe(device_id_loc);
+        APP_DEBUG_TRACE("OtapClient_HandleConnectionEvent\n");
+        OtapClient_HandleConnectionEvent (device_id_loc);
+    }
 }
 
 void BLEManagerImpl::HandleConnectionCloseEvent(blekw_msg_t * msg)
@@ -1097,10 +1152,51 @@ void BLEManagerImpl::HandleConnectionCloseEvent(blekw_msg_t * msg)
         event.CHIPoBLEConnectionError.Reason = BLE_ERROR_REMOTE_DEVICE_DISCONNECTED;
 
         PlatformMgr().PostEventOrDie(&event);
+        if(bEnableBLEOTAFlag)
+        {
+            //(void)Bas_Unsubscribe(&basServiceConfig, device_id_loc);
+            (void)OtapCS_Unsubscribe();
+            OtapClient_HandleDisconnectionEvent (device_id_loc);
+        }
         mFlags.Set(Flags::kRestartAdvertising);
         mFlags.Set(Flags::kFastAdvertisingEnabled);
         PlatformMgr().ScheduleWork(DriveBLEState, 0);
     }
+}
+
+void BLEManagerImpl::HandleOtapClientMtuChanged(blekw_msg_t * msg)
+{
+    blekw_att_written_data_t * att_wr_data = (blekw_att_written_data_t *) msg->data.data;
+    uint16_t newMtu;
+
+    uint16_t writeLen                      = att_wr_data->length;
+    uint8_t * data                         = att_wr_data->data;
+
+    //newMtu = ((*data) << 8) + (*(data+1));
+    newMtu = (*(data+1) << 8) + (*data);
+    APP_DEBUG_TRACE("HandleOtapClientMtuChanged, newMtu:%d\n", newMtu);
+    OtapClient_AttMtuChanged (att_wr_data->device_id, newMtu);
+}
+
+void BLEManagerImpl::HandleOtapClientValueConfirmation(blekw_msg_t * msg)
+{
+    uint8_t device_id_loc = msg->data.u8;
+    APP_DEBUG_TRACE("HandleOtapClientValueConfirmation, deviceid:%d\n", device_id_loc);
+    OtapClient_HandleValueConfirmation (device_id_loc);
+}
+
+
+void BLEManagerImpl::HandleOtapClientWriteWithoutRsp(blekw_msg_t * msg)
+{
+    blekw_att_written_data_t * att_wr_data = (blekw_att_written_data_t *) msg->data.data;
+
+    uint16_t writeLen                      = att_wr_data->length;
+    uint8_t * data                         = att_wr_data->data;
+    uint16_t handle                        = att_wr_data->handle;
+
+    APP_DEBUG_TRACE("HandleOtapClientWriteWithoutRsp, handle:%d\n", handle);
+    OtapClient_AttributeWrittenWithoutResponse (att_wr_data->device_id, handle, writeLen, data);
+
 }
 
 void BLEManagerImpl::HandleWriteEvent(blekw_msg_t * msg)
@@ -1122,9 +1218,26 @@ void BLEManagerImpl::HandleWriteEvent(blekw_msg_t * msg)
     {
         sInstance.HandleTXCharCCCDWrite(msg);
     }
+    else if (cccd_otap_control_point == att_wr_data->handle)
+    {
+        if(bEnableBLEOTAFlag)
+        {
+            APP_DEBUG_TRACE("cccd_otap_control_point");
+            sInstance.HanldeOtapClientCCCDWrite(msg);
+        }
+    }
+    else if(value_otap_control_point == att_wr_data->handle)
+    {
+        if(bEnableBLEOTAFlag)
+        {
+            APP_DEBUG_TRACE("value_otap_control_point");
+            sInstance.HanldeOtapClientOtapWrite(msg);
+        }
+    }
 
     /* TODO: do we need to send the status also for CCCD_WRITTEN? */
-    if (msg->type != BLE_KW_MSG_ATT_CCCD_WRITTEN)
+    if ((msg->type != BLE_KW_MSG_ATT_CCCD_WRITTEN) && (att_wr_data->handle == value_chipoble_rx))
+    //if (msg->type != BLE_KW_MSG_ATT_CCCD_WRITTEN)
     {
         bleResult_t res = GattServer_SendAttributeWrittenStatus(att_wr_data->device_id, att_wr_data->handle, status);
 
@@ -1133,6 +1246,27 @@ void BLEManagerImpl::HandleWriteEvent(blekw_msg_t * msg)
             ChipLogProgress(DeviceLayer, "GattServer_SendAttributeWrittenStatus returned %d", res);
         }
     }
+}
+
+void BLEManagerImpl::HanldeOtapClientOtapWrite(blekw_msg_t * msg)
+{
+    blekw_att_written_data_t * att_wr_data = (blekw_att_written_data_t *) msg->data.data;
+    uint16_t writeLen                      = att_wr_data->length;
+    uint8_t * data                         = att_wr_data->data;
+    uint16_t handle                        = att_wr_data->handle;
+    APP_DEBUG_TRACE("HanldeOtapClientOtapWrite, handle:%d\n", handle);
+    OtapClient_AttributeWritten (att_wr_data->device_id, handle, writeLen, data);
+}
+
+
+void BLEManagerImpl::HanldeOtapClientCCCDWrite(blekw_msg_t * msg)
+{
+    blekw_att_written_data_t * att_wr_data = (blekw_att_written_data_t *) msg->data.data;
+    uint16_t writeLen                      = att_wr_data->length;
+    uint8_t * data                         = att_wr_data->data;
+    uint16_t handle                        = att_wr_data->handle;
+    APP_DEBUG_TRACE("HanldeOtapClientCCCDWrite, newCCCD:%d\n", *data);
+    OtapClient_CccdWritten (att_wr_data->device_id, handle, *data);
 }
 
 void BLEManagerImpl::HandleTXCharCCCDWrite(blekw_msg_t * msg)
@@ -1268,6 +1402,16 @@ void BLEManagerImpl::blekw_generic_cb(gapGenericEvent_t * pGenericEvent)
         /* Common GAP configuration */
         BleConnManager_GapCommonConfig();
 
+        if(bEnableBLEOTAFlag)
+        {
+            /* Start services */
+            //basServiceConfig.batteryLevel = BOARD_GetBatteryLevel();
+            //(void)Bas_Start(&basServiceConfig);
+            (void)Dis_Start(&disServiceConfig);
+            
+            OtapClient_Config();
+            OTA_ClientInit();
+        }
         /* Set the local synchronization event */
         OSA_EventSet(event_msg, CHIP_BLE_KW_EVNT_INIT_COMPLETE);
         break;
@@ -1297,6 +1441,8 @@ void BLEManagerImpl::blekw_gap_advertising_cb(gapAdvertisingEvent_t * pAdvertisi
 
 void BLEManagerImpl::blekw_gap_connection_cb(deviceId_t deviceId, gapConnectionEvent_t * pConnectionEvent)
 {
+    APP_DEBUG_TRACE("%s ConnectionEvent=0x%x\r\n", __FUNCTION__, pConnectionEvent->eventType);
+
     /* Call BLE Conn Manager */
     BleConnManager_GapPeripheralEvent(deviceId, pConnectionEvent);
 
@@ -1374,7 +1520,11 @@ void BLEManagerImpl::blekw_gatt_server_cb(deviceId_t deviceId, gattServerEvent_t
         uint16_t tempMtu = 0;
 
         (void) Gatt_GetMtu(deviceId, &tempMtu);
-        blekw_msg_add_u16(BLE_KW_MSG_MTU_CHANGED, tempMtu);
+        //blekw_msg_add_u16(BLE_KW_MSG_MTU_CHANGED, tempMtu);
+        if(bEnableBLEOTAFlag)
+        {
+            blekw_msg_add_att_written(BLE_KW_MSG_MTU_CHANGED, deviceId, 0, (uint8_t *)&(tempMtu), 2);
+        }
         break;
     }
 
@@ -1390,19 +1540,33 @@ void BLEManagerImpl::blekw_gatt_server_cb(deviceId_t deviceId, gattServerEvent_t
                                   pServerEvent->eventData.longCharWrittenEvent.cValueLength);
         break;
 
+    case gEvtAttributeWrittenWithoutResponse_c:
+        if(bEnableBLEOTAFlag)
+        {
+            blekw_msg_add_att_written(BLE_KW_MSG_ATT_WRITTEN_WITHOUT_RSP, deviceId, pServerEvent->eventData.attributeWrittenEvent.handle,
+                                      pServerEvent->eventData.attributeWrittenEvent.aValue,
+                                      pServerEvent->eventData.attributeWrittenEvent.cValueLength);
+        }
+        break;
+
     case gEvtAttributeRead_c:
         blekw_msg_add_att_read(BLE_KW_MSG_ATT_READ, deviceId, pServerEvent->eventData.attributeReadEvent.handle);
         break;
 
     case gEvtCharacteristicCccdWritten_c: {
-        uint16_t cccd_val = pServerEvent->eventData.charCccdWrittenEvent.newCccd;
+        uint8_t cccd_val = pServerEvent->eventData.charCccdWrittenEvent.newCccd;
 
         blekw_msg_add_att_written(BLE_KW_MSG_ATT_CCCD_WRITTEN, deviceId, pServerEvent->eventData.charCccdWrittenEvent.handle,
-                                  (uint8_t *) &cccd_val, 2);
+                                  (uint8_t *) &cccd_val, 1);
         break;
     }
 
     case gEvtHandleValueConfirmation_c:
+        if(bEnableBLEOTAFlag)
+        {
+            (void) blekw_msg_add_u8(BLE_KW_MSG_VALUE_CONFIRMATION, (uint8_t) deviceId);
+        }
+        
         /* Set the local synchronization event */
         OSA_EventSet(event_msg, CHIP_BLE_KW_EVNT_INDICATION_CONFIRMED);
         break;

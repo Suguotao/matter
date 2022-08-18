@@ -134,6 +134,8 @@ private:
         BLE_KW_MSG_ATT_READ,
         BLE_KW_MSG_ATT_CCCD_WRITTEN,
         BLE_KW_MSG_FORCE_DISCONNECT,
+        BLE_KW_MSG_ATT_WRITTEN_WITHOUT_RSP,
+        BLE_KW_MSG_VALUE_CONFIRMATION,
     } blekw_msg_type_t;
 
     typedef struct hk_ble_kw_msg_s
@@ -207,6 +209,13 @@ private:
     void HandleWriteEvent(blekw_msg_t * msg);
     void HandleRXCharWrite(blekw_msg_t * msg);
     void HandleTXCharCCCDWrite(blekw_msg_t * msg);
+
+    void HandleOtapClientMtuChanged(blekw_msg_t * msg);
+    void HandleOtapClientValueConfirmation(blekw_msg_t * msg);
+    void HandleOtapClientWriteWithoutRsp(blekw_msg_t * msg);
+    void HanldeOtapClientCCCDWrite(blekw_msg_t * msg);
+    void HanldeOtapClientOtapWrite(blekw_msg_t * msg);
+
     CHIP_ERROR HandleGAPConnect(const ChipDeviceEvent * event);
     CHIP_ERROR HandleGAPDisconnect(const ChipDeviceEvent * event);
     CHIP_ERROR HandleRXCharWrite(const ChipDeviceEvent * event);
