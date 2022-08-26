@@ -39,11 +39,6 @@ void LightingManager::SetCallbacks(Callback_fn_initiated aActionInitiated_CB, Ca
     mActionCompleted_CB = aActionCompleted_CB;
 }
 
-void LightingManager::SetState(bool state)
-{
-	mState = state ? kState_On : kState_Off;
-}
-
 bool LightingManager::IsTurnedOff()
 {
     return (mState == kState_Off) ? true : false;
