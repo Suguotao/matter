@@ -141,9 +141,7 @@ CHIP_ERROR AppTask::Init()
 #if CONFIG_CHIP_K32W0_REAL_FACTORY_DATA
     // Initialize factory data provider
     ReturnErrorOnFailure(K32W0FactoryDataProvider::GetDefaultInstance().Init());
-#if CHIP_DEVICE_CONFIG_ENABLE_DEVICE_INSTANCE_INFO_PROVIDER
-    SetDeviceInstanceInfoProvider(&mK32W0FactoryDataProvider);
-#endif
+    SetDeviceInstanceInfoProvider(&K32W0FactoryDataProvider::GetDefaultInstance());
     SetDeviceAttestationCredentialsProvider(&K32W0FactoryDataProvider::GetDefaultInstance());
     SetCommissionableDataProvider(&K32W0FactoryDataProvider::GetDefaultInstance());
 #else

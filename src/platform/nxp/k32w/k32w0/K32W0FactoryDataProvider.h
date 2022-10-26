@@ -30,12 +30,10 @@ namespace DeviceLayer {
  *        and Device Instance Info.
  */
 
-class K32W0FactoryDataProvider : public CommissionableDataProvider,
-                                 public Credentials::DeviceAttestationCredentialsProvider
-#if CHIP_DEVICE_CONFIG_ENABLE_DEVICE_INSTANCE_INFO_PROVIDER
-    ,
-                                 public DeviceInstanceInfoProvider
-#endif // CHIP_DEVICE_CONFIG_ENABLE_DEVICE_INSTANCE_INFO_PROVIDER
+class K32W0FactoryDataProvider :
+    public DeviceInstanceInfoProvider,
+    public CommissionableDataProvider,
+    public Credentials::DeviceAttestationCredentialsProvider
 {
 public:
     static K32W0FactoryDataProvider & GetDefaultInstance();
@@ -60,7 +58,6 @@ public:
     CHIP_ERROR GetProductAttestationIntermediateCert(MutableByteSpan & outBuffer) override;
     CHIP_ERROR SignWithDeviceAttestationKey(const ByteSpan & messageToSign, MutableByteSpan & outSignBuffer) override;
 
-#if CHIP_DEVICE_CONFIG_ENABLE_DEVICE_INSTANCE_INFO_PROVIDER
     // ===== Members functions that implement the GenericDeviceInstanceInfoProvider
     CHIP_ERROR GetVendorName(char * buf, size_t bufSize) override;
     CHIP_ERROR GetVendorId(uint16_t & vendorId) override;
@@ -72,7 +69,6 @@ public:
     CHIP_ERROR GetHardwareVersion(uint16_t & hardwareVersion) override;
 
     CHIP_ERROR GetRotatingDeviceIdUniqueId(MutableByteSpan & uniqueIdSpan) override;
-#endif // CHIP_DEVICE_CONFIG_ENABLE_DEVICE_INSTANCE_INFO_PROVIDER
 };
 
 } // namespace DeviceLayer
